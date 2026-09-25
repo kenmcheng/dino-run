@@ -10,6 +10,16 @@ const ACTIONS = { Space: 'jump', KeyE: 'item', KeyJ: 'item', Enter: 'item', KeyQ
 // standard gamepad mapping: A jump, B item, X ability, Y taunt, RB/RT sprint, LB/LT brake
 const PAD_ACTIONS = { 0: 'jump', 1: 'item', 2: 'ability', 3: 'taunt' };
 
+// HUD hint for a one-shot action: gamepad wins, then the on-screen touch pad, then keyboard.
+const HINTS = {
+  pad: { item: 'B', ability: 'X' },
+  touch: { item: 'tap ITEM', ability: 'tap SKILL' },
+  key: { item: 'E', ability: 'Q' },
+};
+export function actionHint(action, { usingPad = false, touchOn = false } = {}) {
+  return HINTS[usingPad ? 'pad' : touchOn ? 'touch' : 'key'][action];
+}
+
 export class Controls {
   constructor({ onAction, isActive }) {
     this.onAction = onAction;
@@ -18,6 +28,7 @@ export class Controls {
     this.padPrev = [];
     this.touch = { steer: 0, sprint: false, stickId: null, originX: 0 };
     this.usingPad = false;
+    this.touchOn = false;
 
     addEventListener('keydown', (e) => {
       if (!this.isActive() || e.target.tagName === 'INPUT') return;
@@ -31,6 +42,7 @@ export class Controls {
 
   // Touch: drag anywhere on the left part of the screen to steer; buttons on the right.
   attachTouch(root, knob) {
+    this.touchOn = true;
     const zone = root.querySelector('.stick-zone');
     const base = root.querySelector('.stick');
     const setKnob = (dx) => { knob.style.transform = `translateX(${dx}px)`; };
@@ -105,5 +117,9 @@ export class Controls {
       this.padPrev[pad.index] = prev;
     }
     return { steer: Math.max(-1, Math.min(1, steer)), sprint: !!sprint, brake: !!brake };
+  }
+
+  hint(action) {
+    return actionHint(action, this);
   }
 }

@@ -499,8 +499,8 @@ function hud(view, me, now) {
   const item = me.item;
   slot.classList.toggle('rolling', item === '?');
   const keys = Object.keys(ITEMS);
-  const keyItem = controls.usingPad ? 'B' : 'E';
-  const keySkill = controls.usingPad ? 'X' : 'Q';
+  const keyItem = controls.hint('item');
+  const keySkill = controls.hint('ability');
   if (item === '?') {
     R.rollIdx = (R.rollIdx + 1) % (keys.length * 3);
     put('itemIcon', slot.querySelector('.emoji'), 'text', ITEMS[keys[Math.floor(R.rollIdx / 3)]].icon);
