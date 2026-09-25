@@ -7,6 +7,7 @@ import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
 import { Playout } from '/shared/playout.js';
 import { Controls } from './controls.js';
 import { Predictor } from './predict.js';
+import { makeConnector } from './net.js';
 
 const $ = (s) => document.querySelector(s);
 const ORD = (n) => `${n}${['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : n % 10] || 'th'}`;
@@ -150,26 +151,26 @@ function renderLobby() {
 // ------------------------------------------------------------ networking
 function send(m) { if (S.ws?.readyState === 1) S.ws.send(JSON.stringify(m)); }
 
+const openOrSend = makeConnector({
+  state: S,
+  createSocket: () => new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`),
+  onOpen: (first) => send({ ...first, profile }),
+  onMessage,
+  onDisconnect: () => {
+    S.lobby = null;
+    S.race = null;
+    show('title');
+    toast('Disconnected from server');
+  },
+});
+
 function connect(first) {
   if (!profile.name.trim()) {
     profile.name = `${DINOS[profile.dino].name} ${Math.floor(Math.random() * 90 + 10)}`;
     $('#name').value = profile.name;
     saveProfile();
   }
-  const go = () => send({ ...first, profile });
-  if (S.ws && S.ws.readyState === 1) { go(); return; }
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  S.ws = ws;
-  ws.onopen = go;
-  ws.onmessage = (e) => onMessage(JSON.parse(e.data));
-  ws.onclose = () => {
-    if (S.ws !== ws) return;
-    S.ws = null;
-    S.lobby = null;
-    S.race = null;
-    show('title');
-    toast('Disconnected from server');
-  };
+  openOrSend(first);
 }
 
 function onMessage(m) {
