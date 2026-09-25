@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Dino Run</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦖</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <button id="mute" class="icon-btn" title="Toggle sound">🔊</button>
+
+  <!-- Title / costume select -->
+  <section id="screen-title" class="screen">
+    <div class="title-wrap">
+      <div class="stage-col">
+        <header class="logo">
+          <h1>Dino<span>Run</span></h1>
+          <p>The costume race where the costumes fight back</p>
+        </header>
+        <div class="stage-card">
+          <canvas id="preview" aria-label="3D preview of your costume"></canvas>
+          <div id="dino-info" class="dino-info"></div>
+        </div>
+      </div>
+      <div class="panel setup">
+        <label class="field">Runner name
+          <input id="name" maxlength="18" placeholder="e.g. Rexy Rocket" autocomplete="off">
+        </label>
+        <h2>Costume</h2>
+        <div id="dino-grid" class="dino-grid"></div>
+        <h2>Colour</h2>
+        <div id="swatches" class="swatches"></div>
+        <div class="actions">
+          <button id="btn-create" class="primary big">Create room</button>
+          <div class="join">
+            <input id="join-code" maxlength="4" placeholder="CODE" autocomplete="off" aria-label="Room code">
+            <button id="btn-join">Join</button>
+          </div>
+        </div>
+        <details class="how">
+          <summary>How to play</summary>
+          <div class="keys">
+            <div><kbd>←</kbd><kbd>→</kbd> or <kbd>A</kbd><kbd>D</kbd><span>steer</span></div>
+            <div><kbd>↑</kbd> / <kbd>W</kbd> / <kbd>Shift</kbd><span>sprint (heats your costume!)</span></div>
+            <div><kbd>↓</kbd> / <kbd>S</kbd><span>ease off, cool down</span></div>
+            <div><kbd>Space</kbd><span>jump hurdles and peels</span></div>
+            <div><kbd>E</kbd><span>use item</span></div>
+            <div><kbd>Q</kbd><span>signature move</span></div>
+            <div><kbd>T</kbd><span>taunt</span></div>
+          </div>
+          <ul>
+            <li><b>Rocket start:</b> press sprint just before GO. Too early and you wobble.</li>
+            <li><b>Perfect hop:</b> jump so you're at the top of your leap over a hurdle for a burst of speed.</li>
+            <li><b>Slipstream:</b> tuck in right behind a runner to go faster and stay cooler.</li>
+            <li>Water stations cool your costume. Gamepads work too: stick steers, RT sprints, A jumps, B item, X move.</li>
+          </ul>
+        </details>
+        <label class="quality">Graphics
+          <select id="quality">
+            <option value="auto">Auto (recommended)</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+            <option value="lowest">Lowest</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- Lobby -->
+  <section id="screen-lobby" class="screen hidden">
+    <div class="panel lobby">
+      <div class="room-code">
+        <span>Room</span>
+        <strong id="lobby-code">----</strong>
+        <button id="btn-copy">Copy invite link</button>
+      </div>
+      <ul id="lobby-players" class="players"></ul>
+      <div class="host-only">
+        <h2>Course</h2>
+        <div id="course-list" class="courses"></div>
+        <label class="toggle"><input type="checkbox" id="fill-bots" checked> Fill the field with bot dinos</label>
+        <button id="btn-start" class="primary big">Start race!</button>
+      </div>
+      <p id="lobby-wait" class="muted">Waiting for the host to start…</p>
+      <button id="btn-leave" class="link">Leave room</button>
+    </div>
+  </section>
+
+  <!-- Race -->
+  <section id="screen-race" class="screen hidden">
+    <canvas id="game"></canvas>
+    <div id="speedlines" class="speedlines"></div>
+    <div id="ash" class="ash"></div>
+    <div id="vignette" class="vignette"></div>
+    <div id="loading" class="loading hidden"><div class="egg"></div>Building the course…</div>
+    <div class="hud">
+      <div id="hud-place" class="place">-</div>
+      <div class="top-center">
+        <div id="hud-progress" class="progress"><div class="track"></div></div>
+        <div id="hud-time" class="time">0.0 s</div>
+      </div>
+      <div class="item-slot" id="hud-item" title="Item"><span class="emoji"></span><span class="label">no item</span></div>
+      <canvas id="minimap" class="minimap" width="340" height="340"></canvas>
+      <div class="bottom-left">
+        <div id="hud-speed" class="speed">0<small>km/h</small></div>
+        <div class="meter heat"><span>🔥 Costume heat</span><div class="bar"><div id="hud-heat"></div></div></div>
+        <div class="meter ability"><span id="hud-ability-name">Ability</span><div class="bar"><div id="hud-ability"></div></div></div>
+      </div>
+      <ul id="feed" class="feed"></ul>
+      <div id="countdown" class="countdown"></div>
+      <div id="start-hint" class="start-hint hidden">Press <b>sprint</b> just before GO for a 🚀 rocket start!</div>
+      <div id="flashes" class="flashes"></div>
+      <div id="banner" class="banner"></div>
+    </div>
+    <div id="touch" class="touch hidden">
+      <div class="stick-zone"></div>
+      <div class="stick"><div class="knob"></div></div>
+      <div class="pad right">
+        <button data-act="item" class="b-item">ITEM</button>
+        <button data-act="ability" class="b-skill">SKILL</button>
+        <button data-act="jump" class="b-jump">JUMP</button>
+        <button data-hold="sprint" class="b-sprint">SPRINT</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <div id="results" class="overlay hidden">
+    <div class="panel results-panel">
+      <h2 id="results-title">Results</h2>
+      <ol id="results-list" class="results"></ol>
+      <div class="actions">
+        <button id="btn-again" class="primary">Back to lobby</button>
+        <button id="btn-results-leave" class="link">Leave room</button>
+      </div>
+      <p id="results-wait" class="muted">Waiting for the host…</p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

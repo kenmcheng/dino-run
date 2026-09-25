@@ -1,0 +1,210 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { Race, DT } from '../server/race.js';
+import { DINOS, buildCourse, COURSES } from '../shared/data.js';
+
+function rng(seed = 1) {
+  let a = seed;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const human = (id, dino = 'trex') => ({ id, name: id, dino, color: '#000' });
+const steps = (race, seconds) => { for (let i = 0; i < seconds / DT; i++) race.step(); };
+
+test('every course builds with eggs, hurdles clear of water stations', () => {
+  for (const id of Object.keys(COURSES)) {
+    const c = buildCourse(id);
+    assert.ok(c.eggs.length > 0, id);
+    assert.ok(c.hurdles.length > 0, id);
+    for (const h of c.hurdles) {
+      assert.ok(h > 0 && h < c.length, `${id} hurdle ${h} on course`);
+      for (const [a, b] of c.water) assert.ok(h < a - 5 || h > b + 5, `${id} hurdle ${h} clear of water`);
+    }
+  }
+});
+
+test('an all-bot race finishes with a consistent ranking', () => {
+  const entrants = Object.keys(DINOS).map((d, i) => ({ ...human(`b${i}`, d), bot: true }));
+  const race = new Race('sprint', entrants, { rng: rng(7), countdown: 0 });
+  let guard = 0;
+  while (!race.over && guard++ < 200 / DT) race.step();
+  assert.ok(race.over, 'race ended');
+  const res = race.results();
+  assert.equal(res.length, entrants.length);
+  assert.deepEqual(res.map((r) => r.place), res.map((_, i) => i + 1));
+  const finished = res.filter((r) => r.time !== null);
+  assert.ok(finished.length >= 1, 'somebody finished');
+  for (let i = 1; i < finished.length; i++) assert.ok(finished[i].time >= finished[i - 1].time);
+  assert.ok(res.reduce((n, r) => n + r.items, 0) > 0, 'bots used items');
+});
+
+test('nobody moves during the countdown', () => {
+  const race = new Race('sprint', [human('a')], { countdown: 3 });
+  steps(race, 2.5);
+  assert.equal(race.runners[0].x, 0);
+  steps(race, 1);
+  assert.ok(race.runners[0].x > 0);
+});
+
+test('sprinting builds heat until the costume overheats; water cools it', () => {
+  const race = new Race('sprint', [human('a')], { countdown: 0 });
+  const r = race.runners[0];
+  race.setInput('a', { sprint: true });
+  steps(race, DINOS.trex.heatCap + 0.2);
+  assert.ok(r.overheat > 0, 'overheated');
+  assert.ok(race.drainEvents().some((e) => e.k === 'overheat'));
+  steps(race, 0.5);
+  assert.ok(r.v <= 3.6, 'waddling while overheated');
+
+  const wet = new Race('sprint', [human('b')], { countdown: 0 });
+  const w = wet.runners[0];
+  w.x = wet.course.water[0][0] + 1;
+  w.heat = 3;
+  wet.step();
+  wet.step();
+  assert.ok(w.heat < 3 - 0.3, 'water station cools fast');
+});
+
+test('an egg bomb trips the runner ahead in the same line', () => {
+  const race = new Race('sprint', [human('a'), human('b')], { countdown: 0 });
+  const [a, b] = race.runners;
+  a.y = b.y = 3; a.x = 20; b.x = 26; a.cd = b.cd = 99;
+  race.setInput('a', {}); a.item = 'egg';
+  race.queueAction('a', 'item');
+  steps(race, 1);
+  assert.ok(race.drainEvents().some((e) => e.k === 'hit' && e.id === 'b' && e.cause === 'egg'));
+  assert.equal(a.stats.hits, 1);
+});
+
+test('amber shield absorbs a hit', () => {
+  const race = new Race('sprint', [human('a'), human('b')], { countdown: 0 });
+  const [a, b] = race.runners;
+  b.fx.shield = 10;
+  assert.equal(race.hit(b, a, 'egg', 1.4), false);
+  assert.equal(b.fx.shield, 0);
+  assert.equal(b.fx.trip, 0);
+  assert.equal(race.hit(b, a, 'egg', 1.4), true);
+  assert.ok(b.fx.trip > 0);
+});
+
+test('jumping clears a fossil hurdle; running into it stumbles', () => {
+  const race = new Race('sprint', [human('a'), human('b')], { countdown: 0 });
+  const [a, b] = race.runners;
+  const h = race.course.hurdles[0];
+  a.x = b.x = h - 2; a.v = b.v = 9; a.cd = b.cd = 99;
+  race.queueAction('a', 'jump');
+  steps(race, 0.4);
+  assert.equal(a.fx.stumble, 0, 'jumper clears it');
+  assert.ok(b.fx.stumble > 0, 'non-jumper stumbles');
+});
+
+test('meteor homes in on the leader', () => {
+  const race = new Race('sprint', [human('a'), human('b'), human('c')], { countdown: 0 });
+  const [a, b, c] = race.runners;
+  a.x = 10; b.x = 50; c.x = 30;
+  for (const r of race.runners) r.cd = 99;
+  race.rank();
+  a.item = 'meteor';
+  race.queueAction('a', 'item');
+  steps(race, 2.6);
+  assert.ok(race.drainEvents().some((e) => e.k === 'hit' && e.id === 'b' && e.cause === 'meteor'));
+  assert.equal(c.fx.trip, 0);
+});
+
+test('parasaur honk steals the nearest rival item', () => {
+  const race = new Race('sprint', [human('p', 'parasaur'), human('v')], { countdown: 0 });
+  const [p, v] = race.runners;
+  p.x = 10; v.x = 14; v.y = p.y + 3; p.cd = 0; v.item = 'boba';
+  race.queueAction('p', 'ability');
+  race.step();
+  assert.equal(p.item, 'boba');
+  assert.equal(v.item, null);
+});
+
+test('triceratops charge smashes hurdles and bowls runners over', () => {
+  const race = new Race('sprint', [human('t', 'trike'), human('x')], { countdown: 0 });
+  const [t, x] = race.runners;
+  const h = race.course.hurdles[0];
+  t.x = h - 3; x.x = h + 1; t.y = x.y = 3; t.v = 9; t.cd = 0; x.cd = 99;
+  race.queueAction('t', 'ability');
+  steps(race, 0.6);
+  assert.equal(t.fx.stumble, 0, 'charge ignores the hurdle');
+  assert.ok(x.fx.trip > 0 || x.fx.ifr > 0, 'runner in the way got bowled');
+});
+
+test('disconnecting mid-race hands the runner to a bot', () => {
+  const race = new Race('sprint', [human('a')], { countdown: 0 });
+  race.makeBot('a');
+  steps(race, 2);
+  assert.ok(race.runners[0].bot);
+  assert.ok(race.runners[0].x > 5);
+});
+
+test('steering is analog with a little momentum, and respects the track edges', () => {
+  const race = new Race('sprint', [human('a')], { countdown: 0 });
+  const r = race.runners[0];
+  r.y = 3;
+  race.setInput('a', { steer: -1 });
+  race.step();
+  const firstStep = 3 - r.y;
+  steps(race, 0.3);
+  assert.ok(firstStep > 0 && firstStep < 0.1, 'accelerates into the turn rather than teleporting');
+  assert.ok(r.y < 2, 'full steer moves across lanes quickly');
+  race.setInput('a', { steer: 0.5 });
+  const y0 = r.y;
+  steps(race, 0.5);
+  assert.ok(r.y > y0, 'half steer to the right moves right');
+  race.setInput('a', { steer: 1 });
+  steps(race, 3);
+  assert.ok(r.y <= 5.7 + 1e-9, 'clamped at the outer edge');
+  race.setInput('a', { steer: 'nonsense' });
+  assert.equal(r.input.steer, 0, 'junk input is ignored');
+});
+
+test('rocket start rewards a well-timed sprint; holding early is a false start', () => {
+  const race = new Race('sprint', [human('good'), human('early'), human('none')], { countdown: 3 });
+  const [good, early, none] = race.runners;
+  race.setInput('early', { sprint: true });            // pressed at -3 s
+  steps(race, 2.7);
+  race.setInput('good', { sprint: true });             // pressed ~0.3 s before GO
+  steps(race, 0.4);
+  const ev = race.drainEvents();
+  assert.ok(ev.some((e) => e.k === 'rocket' && e.id === 'good'));
+  assert.ok(good.fx.boost > 0);
+  assert.ok(ev.some((e) => e.k === 'falsestart' && e.id === 'early'));
+  assert.ok(early.fx.stumble > 0);
+  assert.equal(none.fx.boost, 0);
+});
+
+test('a jump timed to peak over the hurdle earns a hop boost', () => {
+  const race = new Race('sprint', [human('a'), human('b')], { countdown: 0 });
+  const [a, b] = race.runners;
+  const h = race.course.hurdles[0];
+  for (const r of race.runners) { r.v = 9; r.cd = 99; }
+  a.x = h - 9 * 0.25;          // jump ~0.25 s before crossing: perfect
+  b.x = h - 9 * 0.05;          // jump just before the bar: clears it, no boost
+  b.y = a.y + 3;
+  race.queueAction('a', 'jump');
+  race.queueAction('b', 'jump');
+  steps(race, 0.5);
+  const hops = race.drainEvents().filter((e) => e.k === 'hop').map((e) => e.id);
+  assert.deepEqual(hops, ['a']);
+  assert.ok(a.fx.boost > 0);
+});
+
+test('tucking in behind a runner gives a slipstream', () => {
+  const race = new Race('sprint', [human('lead'), human('tail'), human('wide')], { countdown: 0 });
+  const [lead, tail, wide] = race.runners;
+  lead.x = 20; tail.x = 17; wide.x = 17;
+  lead.y = tail.y = 3; wide.y = 5.5;
+  for (const r of race.runners) { r.v = 9; r.cd = 99; }
+  steps(race, 1);
+  assert.ok(tail.fx.draft > 0, 'drafting runner gets the slipstream');
+  assert.equal(wide.fx.draft, 0, 'a runner off the line does not');
+  assert.ok(race.drainEvents().some((e) => e.k === 'draft' && e.id === 'tail'));
+});

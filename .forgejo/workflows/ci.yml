@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Forgejo's built-in CancelPreviousJobs auto-cancels an in-flight run for an
+# earlier push on the same ref as soon as a newer one lands (board task 1200) --
+# on main that can kill `build`/`ship`/`deploy` mid-run and lose their signal
+# entirely. Queue instead of cancelling; ship.sh's own SHIP_LOOKBACK window
+# below is the second, independent layer that recovers a ticket even if a run
+# is lost some other way (a failing upstream job skips `ship` outright, too).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: docker
+    container:
+      image: node:22-bookworm
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run tests
+        run: |
+          mkdir -p test-results
+          ./test.sh --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=test-results/junit.xml
+      - name: Check no control signal is read out of comment text
+        run: |
+          # The job container may run this as root over a workspace owned by
+          # another uid (trend-scout chowns the tree to `ci` for its test step),
+          # which makes git refuse with "dubious ownership" and the guard would
+          # fail for a reason that has nothing to do with the check.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          bash .forgejo/scripts/no-comment-control-signals.sh
+      - name: Write test report summary
+        if: always()
+        run: |
+          if [ -f test-results/junit.xml ]; then
+            total=$(grep -c '<testcase ' test-results/junit.xml || true)
+            fails=$(grep -c '<failure' test-results/junit.xml || true)
+            { echo "## Test report"; echo; echo "- Total: ${total}"; echo "- Failed: ${fails}"; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Test report: no junit.xml produced (run crashed before tests?)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-report
+          path: test-results/
+      - name: Comment CI result on the PR
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then BADGE="✅ PASS"; else BADGE="❌ FAIL ($STATUS)"; fi
+          TASK_NUM=$(printf %s "${{ github.head_ref }}" | sed -n "s/^task-\([0-9][0-9]*\)$/\1/p")
+          TASK_LINK=""
+          [ -n "$TASK_NUM" ] && TASK_LINK=" · [task $TASK_NUM](${{ vars.TASKSMITH_UI_URL }}/tasks/$TASK_NUM)"
+          BODY="<!-- forgejo-ci-report:${{ github.job }} -->**CI test $BADGE** — commit ${{ github.event.pull_request.head.sha }} · [run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }})$TASK_LINK"
+          PAYLOAD=$(node -e 'console.log(JSON.stringify({body: process.argv[1]}))' "$BODY")
+          curl -sf -X POST -H "Authorization: token ${{ github.token }}" \
+            -H "Content-Type: application/json" -d "$PAYLOAD" \
+            "${{ github.server_url }}/api/v1/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            || echo "::warning::CI result comment failed"
+
+  # Ship the merge: sync the project wiki from README.md and close the tickets this
+  # push landed. Replaces the PM cron's JOB B board task 1009.
+  ship:
+    needs: [test]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: docker
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-22.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # ship.sh walks SHIP_LOOKBACK commits back; a shallow clone can't
+      - name: Ship — sync wiki and close shipped tickets
+        env:
+          TASKSMITH_KEY: ${{ secrets.TASKSMITH_KEY }}
+          TASKSMITH_URL: ${{ vars.TASKSMITH_URL }}
+          SHIP_SHA: ${{ github.sha }}
+          SHIP_BEFORE: ${{ github.event.before }}
+          SHIP_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+          SHIP_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          export SHIP_REPO="${GITHUB_REPOSITORY##*/}"
+          bash "$GITHUB_WORKSPACE/.forgejo/scripts/ship.sh"
+
+  # Single source of truth for the board verdict. `needs:` every other job and
+  # `if: always()` means this runs only once all of them have terminally resolved --
+  # including `ship`, which is push-only and therefore resolves as `skipped` on a PR.
+  # The old per-job poll saw that never-terminal sibling and silently deferred the
+  # verdict forever (board task 1006, re-found as task 1186).
+  report-verdict:
+    needs: [test, ship]
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: docker
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-22.04
+    steps:
+      - name: Report CI verdict to Tasksmith
+        env:
+          TASKSMITH_KEY: ${{ secrets.TASKSMITH_KEY }}
+          TASKSMITH_URL: ${{ vars.TASKSMITH_URL }}
+          R_TEST: ${{ needs.test.result }}
+          R_SHIP: ${{ needs.ship.result }}
+        run: |
+          TASK=$(printf %s "${{ github.head_ref }}" | sed -n "s/^task-\([0-9][0-9]*\)$/\1/p")
+          if [ -z "$TASK" ]; then echo "branch is not task-<n>; nothing to report"; exit 0; fi
+          if [ -z "$TASKSMITH_KEY" ]; then echo "::warning::TASKSMITH_KEY secret unset; board not updated"; exit 0; fi
+          if [ -z "$TASKSMITH_URL" ]; then echo "::warning::TASKSMITH_URL variable unset; board not updated"; exit 0; fi
+          echo "job results: test=$R_TEST ship=$R_SHIP"
+          # skipped is NOT a failure: `ship` is push-only and is always skipped here.
+          V=pass
+          for r in "$R_TEST" "$R_SHIP"; do
+            case "$r" in failure|cancelled) V=fail ;; esac
+          done
+          SHA="${{ github.event.pull_request.head.sha }}"
+          API="$TASKSMITH_URL/api/tasks/$TASK"
+          AUTH="Authorization: Bearer $TASKSMITH_KEY"
+          T=$(curl -sf -H "$AUTH" "$API") || { echo "::warning::task $TASK not found on the board"; exit 0; }
+          # PATCH labels REPLACES the array: keep the rest, swap the ci:* marker.
+          PAYLOAD=$(printf %s "$T" | node -e '
+            let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+              const t=JSON.parse(s);
+              const keep=(t.labels||[]).filter(l=>l!=="ci:pass"&&l!=="ci:fail");
+              keep.push(process.argv[1]);
+              console.log(JSON.stringify({labels:[...new Set(keep)]}));
+            })' "ci:$V")
+          curl -sf -X PATCH -H "$AUTH" -H "Content-Type: application/json" -d "$PAYLOAD" "$API" >/dev/null \
+            && echo "board: labelled ci:$V" || echo "::warning::could not set ci:$V on task $TASK"
+          MSG="**CI $V** — [PR #${{ github.event.pull_request.number }}](${{ github.server_url }}/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}) commit $SHA, [run #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}). Posted automatically by Forgejo CI."
+          CBODY=$(node -e 'console.log(JSON.stringify({body:process.argv[1]}))' "$MSG")
+          curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" -d "$CBODY" "$API/comments" >/dev/null \
+            && echo "board: commented" || echo "::warning::could not comment on task $TASK"
