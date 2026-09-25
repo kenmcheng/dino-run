@@ -162,11 +162,12 @@ export class Race {
     let target = d.top;
     if (r.input.brake) target *= 0.55;
     if (sprinting) target *= 1.28;
-    if (r.overheat > 0) target = 3.5;
     if (f.boost) target = Math.max(target, d.top * 1.45);
     if (f.charge) target = d.top * 1.3;
     if (f.glide) target *= 1.06;
     if (f.draft) target *= 1.07;
+    // Overheat caps every speed-up above: boosts/charges can't beat the waddle.
+    if (r.overheat > 0) target = 3.5;
     if (f.deflate) target *= 0.72;
     if (grounded && inZones(this.course.mud, r.x)) target *= 0.72;
     if (grounded && this.inTar(r)) target *= 0.42;

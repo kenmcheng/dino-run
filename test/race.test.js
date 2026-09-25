@@ -70,6 +70,48 @@ test('sprinting builds heat until the costume overheats; water cools it', () => 
   assert.ok(w.heat < 3 - 0.3, 'water station cools fast');
 });
 
+test('boost and horn charge cannot break the overheat waddle', () => {
+  const race = new Race('sprint', [human('a')], { countdown: 0 });
+  const r = race.runners[0];
+  race.setInput('a', { sprint: true });
+  r.heat = DINOS.trex.heatCap;
+  race.step();
+  assert.ok(r.overheat > 0, 'overheated');
+  steps(race, 0.6); // let v settle from sprint speed toward the waddle cap first
+
+  let checked = 0;
+  while (r.overheat > 0.05) {
+    r.fx.boost = Math.max(r.fx.boost, 0.8);
+    r.fx.charge = Math.max(r.fx.charge, 1.2);
+    race.step();
+    assert.ok(r.v <= 3.6, `waddling despite boost+charge, v=${r.v}`);
+    checked++;
+  }
+  assert.ok(checked > 30, 'covered enough of the overheat window');
+});
+
+test('boost and charge still exceed top speed when not overheated', () => {
+  const race = new Race('sprint', [human('a')], { countdown: 0 });
+  const r = race.runners[0];
+  for (let i = 0; i < 3 / DT; i++) {
+    r.fx.boost = 1;
+    r.heat = 0;
+    r.overheat = 0;
+    race.step();
+  }
+  assert.ok(r.v > DINOS.trex.top * 1.4, `boost still beats top speed, v=${r.v}`);
+
+  const race2 = new Race('sprint', [human('c', 'trike')], { countdown: 0 });
+  const c = race2.runners[0];
+  for (let i = 0; i < 3 / DT; i++) {
+    c.fx.charge = 1;
+    c.heat = 0;
+    c.overheat = 0;
+    race2.step();
+  }
+  assert.ok(c.v > DINOS.trike.top * 1.25, `charge still beats top speed, v=${c.v}`);
+});
+
 test('an egg bomb trips the runner ahead in the same line', () => {
   const race = new Race('sprint', [human('a'), human('b')], { countdown: 0 });
   const [a, b] = race.runners;
