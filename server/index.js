@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { RoomManager } from './rooms.js';
+import { LIMITS, messageLimiter, IpCounter, clientIp } from './limits.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.PORT !== undefined && process.env.PORT !== '' ? Number(process.env.PORT) : 8090;
@@ -46,14 +47,30 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const rooms = new RoomManager();
+const rooms = new RoomManager({ maxRooms: LIMITS.maxRooms });
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });
+const ipCounter = new IpCounter();
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  const ip = clientIp(req, LIMITS.trustProxy);
+  // wss.clients already counts this socket, so `>` (not `>=`) is the ceiling.
+  if (wss.clients.size > LIMITS.maxConnections) {
+    ws.send(JSON.stringify({ t: 'error', msg: 'Server is busy — try again in a moment' }));
+    ws.close(1013, 'Server busy');
+    return;
+  }
+  if (ipCounter.add(ip) > LIMITS.maxConnectionsPerIp) {
+    ipCounter.remove(ip);
+    ws.send(JSON.stringify({ t: 'error', msg: 'Too many connections from your network' }));
+    ws.close(1013, 'Too many connections');
+    return;
+  }
+
   const id = `p${rooms.nextClient++}`;
   let room = null;
   const send = (s) => { if (ws.readyState === ws.OPEN) ws.send(s); };
   const reply = (msg) => send(JSON.stringify(msg));
+  const limiter = messageLimiter(LIMITS);
   reply({ t: 'hello', id });
 
   const handle = (m) => {
@@ -63,7 +80,10 @@ wss.on('connection', (ws) => {
         if (room) room.leave(id);
         room = null;
         const target = m.t === 'create' ? rooms.create() : rooms.get(m.code);
-        if (!target) { reply({ t: 'error', msg: 'No room with that code' }); return; }
+        if (!target) {
+          reply({ t: 'error', msg: m.t === 'create' ? 'Server is full — too many rooms open, try again later' : 'No room with that code' });
+          return;
+        }
         const err = target.join(id, send, m.profile);
         if (err) { reply({ t: 'error', msg: err }); if (target.clients.size === 0) rooms.drop(target); return; }
         room = target;
@@ -82,6 +102,9 @@ wss.on('connection', (ws) => {
   };
 
   ws.on('message', (raw) => {
+    const v = limiter.hit();
+    if (v === 'drop') return;
+    if (v === 'close') { ws.close(1008, 'Rate limit exceeded'); return; }
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     if (!m || typeof m !== 'object' || Array.isArray(m)) return;
@@ -93,10 +116,11 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => room?.leave(id));
+  ws.on('close', () => { room?.leave(id); ipCounter.remove(ip); });
 });
 
 server.listen(PORT, HOST, () => {
   const { port } = server.address();
   console.log(`Dino Run listening on http://${HOST}:${port}`);
+  console.log('Limits:', LIMITS);
 });

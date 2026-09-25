@@ -28,7 +28,36 @@ Docker:
 ```bash
 docker build -t dino-run .
 docker run -p 8090:8090 dino-run
+# e.g. docker run -p 8090:8090 -e MAX_ROOMS=50 dino-run
 ```
+
+## Limits
+
+The server is unauthenticated, so it caps a few things to keep one client (or
+a small script) from growing memory use or flooding the event loop without
+bound. All are env vars with defaults sized for a LAN party of up to
+`MAX_PLAYERS` (8) runners:
+
+| Env var | Default | Meaning | On limit |
+| --- | --- | --- | --- |
+| `MAX_ROOMS` | 200 | Ceiling on concurrent rooms | `create` gets `{t:'error', msg:'Server is full…'}` (shown via `toast()`); no room is made |
+| `MAX_CONNECTIONS` | 500 | Ceiling on total open WebSocket connections | New socket gets an error frame, then closes with code 1013 |
+| `MAX_CONNECTIONS_PER_IP` | 16 | Ceiling on open connections from one IP | Same as above — a LAN party of 8 players sharing one IP, plus reconnect slack |
+| `MSG_RATE` | 150 | Sustained messages/second a connection can send | Extra messages are dropped silently once the burst is spent |
+| `MSG_BURST` | 300 | Token-bucket burst size | — |
+| `MSG_FLOOD_DROPS` | 300 | Dropped messages within `MSG_FLOOD_WINDOW_MS` before the socket is cut off | Socket closes with code 1008 |
+| `MSG_FLOOD_WINDOW_MS` | 10000 | Window (ms) the flood count resets over | — |
+| `TRUST_PROXY` | unset | Set to `1` behind a reverse proxy | Uses the last `X-Forwarded-For` hop as the client IP instead of the socket address |
+
+`MSG_RATE`/`MSG_BURST` default to 150/300 because the client sends an `input`
+message on every animation frame where steer, sprint or brake changes, which
+on a 144 Hz display with an analog stick is close to 144 messages/second —
+the defaults stay comfortably above that.
+
+Without `TRUST_PROXY=1` behind a reverse proxy, every client appears to share
+the proxy's IP, and the per-IP cap effectively becomes a site-wide cap. With
+it set, the server trusts the last `X-Forwarded-For` entry (the one the proxy
+itself appended) rather than the client-controlled leftmost entry.
 
 ## How to play
 
@@ -85,6 +114,7 @@ stragglers get the equalisers.
 ```
 server/index.js          HTTP static files + WebSocket (/ws) on one port; serves three.js from node_modules
 server/rooms.js          rooms, lobby, bots, 30 Hz tick loop, 15 Hz snapshots
+server/limits.js         room/connection caps and message rate limiting, see "Limits" above
 server/race.js           authoritative race simulation (pure, deterministic with a seeded rng)
 shared/data.js           dinosaurs, items, courses, shared by server and browser
 shared/playout.js        jitter-tolerant playback clock for snapshots (unit-tested)

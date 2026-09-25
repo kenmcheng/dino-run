@@ -9,7 +9,11 @@ const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim()
 const own = (obj, k) => typeof k === 'string' && Object.hasOwn(obj, k);
 
 export class RoomManager {
-  constructor() { this.rooms = new Map(); this.nextClient = 1; }
+  constructor({ maxRooms = Infinity } = {}) {
+    this.rooms = new Map();
+    this.nextClient = 1;
+    this.maxRooms = maxRooms;
+  }
 
   newCode() {
     for (;;) {
@@ -20,6 +24,7 @@ export class RoomManager {
   }
 
   create() {
+    if (this.rooms.size >= this.maxRooms) return null;
     const room = new Room(this.newCode(), this);
     this.rooms.set(room.code, room);
     return room;
