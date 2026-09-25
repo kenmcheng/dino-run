@@ -20,7 +20,7 @@ or the 4-letter code. Bots fill the field up to six runners, so you can race
 alone too.
 
 ```bash
-./test.sh            # simulation tests (pure logic, no network or DB)
+./test.sh            # simulation tests plus a server integration test (no external network or DB)
 ```
 
 Docker:

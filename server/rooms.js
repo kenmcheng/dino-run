@@ -6,6 +6,7 @@ import {
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const clean = (s, n) => String(s ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, n);
+const own = (obj, k) => typeof k === 'string' && Object.hasOwn(obj, k);
 
 export class RoomManager {
   constructor() { this.rooms = new Map(); this.nextClient = 1; }
@@ -69,13 +70,14 @@ export class Room {
   update(id, profile) {
     const c = this.clients.get(id);
     if (!c || this.state === 'racing') return;
-    Object.assign(c, sanitizeProfile({ ...c, ...profile }));
+    const patch = profile && typeof profile === 'object' && !Array.isArray(profile) ? profile : {};
+    Object.assign(c, sanitizeProfile({ name: c.name, dino: c.dino, color: c.color, ...patch }));
     this.sendLobby();
   }
 
   configure(id, { course, fillBots }) {
     if (id !== this.hostId || this.state === 'racing') return;
-    if (COURSES[course]) this.course = course;
+    if (own(COURSES, course)) this.course = course;
     if (typeof fillBots === 'boolean') this.fillBots = fillBots;
     this.sendLobby();
   }
@@ -113,17 +115,26 @@ export class Room {
 
   step() {
     const race = this.race;
-    race.step();
-    this.tick++;
-    if (this.tick % SNAPSHOT_EVERY === 0 || race.over) {
-      this.broadcast({ t: 'snap', ...race.snapshot(), ev: race.drainEvents() });
-    }
-    if (race.over) {
+    try {
+      race.step();
+      this.tick++;
+      if (this.tick % SNAPSHOT_EVERY === 0 || race.over) {
+        this.broadcast({ t: 'snap', ...race.snapshot(), ev: race.drainEvents() });
+      }
+      if (race.over) {
+        this.stop();
+        this.state = 'results';
+        this.lastResults = race.results();
+        this.broadcast({ t: 'results', course: this.course, results: this.lastResults });
+        this.race = null;
+      }
+    } catch (e) {
+      console.error('race step error', this.code, e);
       this.stop();
-      this.state = 'results';
-      this.lastResults = race.results();
-      this.broadcast({ t: 'results', course: this.course, results: this.lastResults });
+      this.state = 'lobby';
       this.race = null;
+      this.broadcast({ t: 'error', msg: 'Race crashed' });
+      this.sendLobby();
     }
   }
 
@@ -140,8 +151,9 @@ export class Room {
   }
 }
 
-function sanitizeProfile(p = {}) {
-  const dino = DINOS[p.dino] ? p.dino : 'trex';
+function sanitizeProfile(p) {
+  if (p === null || typeof p !== 'object' || Array.isArray(p)) p = {};
+  const dino = own(DINOS, p.dino) ? p.dino : 'trex';
   return {
     name: clean(p.name, 18) || 'Mystery Dino',
     dino,

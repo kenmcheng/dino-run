@@ -7,8 +7,10 @@ import { WebSocketServer } from 'ws';
 import { RoomManager } from './rooms.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PORT = Number(process.env.PORT) || 8090;
+const PORT = process.env.PORT !== undefined && process.env.PORT !== '' ? Number(process.env.PORT) : 8090;
 const HOST = process.env.HOST || '0.0.0.0';
+
+process.on('uncaughtException', (e) => console.error('uncaughtException', e));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -54,9 +56,7 @@ wss.on('connection', (ws) => {
   const reply = (msg) => send(JSON.stringify(msg));
   reply({ t: 'hello', id });
 
-  ws.on('message', (raw) => {
-    let m;
-    try { m = JSON.parse(raw); } catch { return; }
+  const handle = (m) => {
     switch (m.t) {
       case 'create':
       case 'join': {
@@ -79,11 +79,24 @@ wss.on('connection', (ws) => {
       case 'leave': room?.leave(id); room = null; return;
       default:
     }
+  };
+
+  ws.on('message', (raw) => {
+    let m;
+    try { m = JSON.parse(raw); } catch { return; }
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return;
+    try {
+      handle(m);
+    } catch (e) {
+      console.error('ws message handler error', id, e);
+      try { ws.close(1011, 'internal error'); } catch {}
+    }
   });
 
   ws.on('close', () => room?.leave(id));
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Dino Run listening on http://${HOST}:${PORT}`);
+  const { port } = server.address();
+  console.log(`Dino Run listening on http://${HOST}:${port}`);
 });

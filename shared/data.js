@@ -122,7 +122,7 @@ export const MUD_LEN = 16;
 
 // Deterministic course layout so client and server agree without sending it.
 export function buildCourse(id) {
-  const c = COURSES[id] || COURSES.sprint;
+  const c = Object.hasOwn(COURSES, id) ? COURSES[id] : COURSES.sprint;
   const eggs = [];
   const hurdles = [];
   for (let x = 30, row = 0; x < c.length - 25; x += c.eggEvery, row++) {
@@ -136,7 +136,7 @@ export function buildCourse(id) {
     hurdles.push(x);
   }
   return {
-    id: COURSES[id] ? id : 'sprint',
+    id: Object.hasOwn(COURSES, id) ? id : 'sprint',
     ...c,
     heatMul: c.heatMul || 1,
     eggs,

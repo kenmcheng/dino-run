@@ -20,7 +20,7 @@ function makeRunner(e, i, n) {
   for (const k of FX_KEYS) fx[k] = 0;
   fx.ifr = 0;
   return {
-    id: e.id, name: e.name, dino: DINOS[e.dino] ? e.dino : 'trex', color: e.color, bot: !!e.bot,
+    id: e.id, name: e.name, dino: Object.hasOwn(DINOS, e.dino) ? e.dino : 'trex', color: e.color, bot: !!e.bot,
     x: 0, y: ((i + 0.5) * TRACK_W) / n, z: 0, vz: 0, v: 0, vy: 0,
     sprintSince: null, jumpT: -99, draftT: 0,
     heat: 0, overheat: 0, item: null, pending: null, roll: 0, cd: 5, taunt: 0,
