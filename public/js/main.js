@@ -2,6 +2,7 @@ import {
   DINOS, ITEMS, COURSES, COSTUME_COLORS, FX,
 } from '/shared/data.js';
 import { Game3D } from './three/game3d.js';
+import { TIERS, TIER_LABELS } from './three/quality.js';
 import { Studio, thumbnail } from './three/studio.js';
 import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
 import { Playout } from '/shared/playout.js';
@@ -613,9 +614,23 @@ try {
 window.dinoRun = { game, studio }; // handy from the devtools console
 const qSel = $('#quality');
 qSel.value = game.qualityPref;
+function refreshQualityLabel() {
+  const opt = qSel.querySelector('option[value="auto"]');
+  opt.textContent = game.qualityPref === 'auto' && game.tier !== 'high'
+    ? `Auto (now ${TIER_LABELS[game.tier]})`
+    : 'Auto (recommended)';
+}
+game.onTierChange = (tier, prev) => {
+  toast(TIERS.indexOf(tier) > TIERS.indexOf(prev)
+    ? `Graphics lowered to ${TIER_LABELS[tier]} for smoother play`
+    : `Graphics restored to ${TIER_LABELS[tier]}`);
+  refreshQualityLabel();
+};
+refreshQualityLabel();
 qSel.addEventListener('change', () => {
   game.setQuality(qSel.value);
   try { localStorage.setItem('dino-run-quality', qSel.value); } catch { /* ignore */ }
+  refreshQualityLabel();
 });
 buildTitle();
 requestAnimationFrame(fillThumbnails);

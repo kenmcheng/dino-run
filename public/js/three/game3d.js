@@ -13,17 +13,11 @@ import { Props } from './props.js';
 import { Particles } from './fx.js';
 import { buildDino } from './dino3d.js';
 import * as T from './textures.js';
+import { QUALITY, createPerf, nextTier } from './quality.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
-// Quality tiers. "auto" starts at high and steps down while frames are slow.
-export const QUALITY = {
-  high:   { ratio: 1.75, post: true,  msaa: 4, shadow: 2048, shadows: true,  grass: 1 },
-  medium: { ratio: 1.25, post: true,  msaa: 0, shadow: 2048, shadows: true,  grass: 0.6 },
-  low:    { ratio: 1,    post: false, msaa: 0, shadow: 1024, shadows: true,  grass: 0.35 },
-  lowest: { ratio: 0.8,  post: false, msaa: 0, shadow: 1024, shadows: false, grass: 0 },
-};
-const TIERS = ['high', 'medium', 'low', 'lowest'];
+export { QUALITY };
 
 // Final grade: gentle vignette, a touch more saturation and warmth.
 const GradeShader = {
@@ -76,7 +70,8 @@ export class Game3D {
     this.shake = 0;
     this.blobTex = blobTexture();
     this.ringGeom = new THREE.RingGeometry(0.8, 1, 48);
-    this.perf = { ema: 1 / 60, slowFor: 0 };
+    this.perf = createPerf();
+    this.onTierChange = null;
     let pref = 'auto';
     try { pref = localStorage.getItem('dino-run-quality') || 'auto'; } catch { /* ignore */ }
     if (new URLSearchParams(location.search).has('hq')) pref = 'high';
@@ -88,6 +83,7 @@ export class Game3D {
   setQuality(pref) {
     this.qualityPref = pref;
     this.tier = pref === 'auto' ? 'high' : pref;
+    this.perf = createPerf();
     this.applyTier();
   }
 
@@ -126,18 +122,15 @@ export class Game3D {
     this.composer = c;
   }
 
-  // In auto mode, drop a tier whenever frames stay slow for a few seconds.
+  // In auto mode, drop a tier when frames stay slow, and climb back after a longer fast streak.
   adapt(dt) {
-    const P = this.perf;
-    P.ema += (dt - P.ema) * 0.05;
-    P.slowFor = P.ema > 1 / 40 ? P.slowFor + dt : 0;
-    if (this.qualityPref !== 'auto' || P.slowFor < 2.5) return;
-    const i = TIERS.indexOf(this.tier);
-    if (i >= TIERS.length - 1) return;
-    P.slowFor = 0;
-    P.ema = 1 / 60;
-    this.tier = TIERS[i + 1];
+    if (this.qualityPref !== 'auto') return;
+    const prev = this.tier;
+    const next = nextTier(this.perf, prev, dt);
+    if (next === prev) return;
+    this.tier = next;
     this.applyTier();
+    this.onTierChange?.(next, prev);
   }
 
   resize() {
@@ -216,6 +209,7 @@ export class Game3D {
     this.loadedAt = performance.now() / 1000;
     this.ready = true;
     this.perf.slowFor = 0;
+    this.perf.fastFor = 0;
     this.perf.ema = 1 / 60;
   }
 

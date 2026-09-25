@@ -93,6 +93,7 @@ public/js/controls.js    keyboard, gamepad and touch stick → { steer, sprint, 
 public/js/predict.js     local prediction of your own steering and jumps
 public/js/three/
   game3d.js              renderer, lights, chase camera, per-frame sync, adaptive quality
+  quality.js             auto-quality state machine (unit-tested)
   track.js               course loops (length = sim distance), surfaces, extrusion helpers
   scenery.js             stadium / jungle / volcano environments (instanced crowds, trees, lava…)
   props.js               start arch + mascot, hurdles, water stations, eggs, hazards, projectiles
@@ -141,8 +142,13 @@ public/js/three/
   turns.
 - **Graphics settings.** You can pick Auto, High, Medium, Low or Lowest on the
   title screen. Auto starts at High and steps down whenever frames stay slower
-  than about 40 fps. The order is: pixel ratio, then post-processing, then
-  shadow resolution, then shadows. Add `?hq` to the URL to pin High.
+  than about 40 fps, then climbs back up after a sustained run faster than
+  about 55 fps; a tier that keeps failing needs longer and longer fast streaks
+  to earn back (and gives up after enough drops), so it can't flap. The order
+  is: pixel ratio, then post-processing, then shadow resolution, then shadows.
+  A toast announces every effective change, and the Auto option's label shows
+  the current effective tier when it isn't High. Add `?hq` to the URL to pin
+  High.
   - A stadium frame at High is about 600 draw calls and 825k triangles,
     shadow pass included.
   - Small parts don't cast shadows.
