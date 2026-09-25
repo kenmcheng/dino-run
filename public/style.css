@@ -129,6 +129,7 @@ kbd {
 .course-jungle { background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.45)), linear-gradient(160deg, #9ed9b5, #2f7a3c 50%, #8a6440 51%, #5e4128); }
 .course-volcano { background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.45)), linear-gradient(160deg, #e0703a, #5a1d1d 50%, #2d2628 51%, #150f10); }
 .course.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,176,32,0.35), 0 4px 0 rgba(0,0,0,0.2); }
+.lobby-setup .course { border-radius: 14px; box-shadow: 0 4px 0 rgba(0,0,0,0.16); max-width: 320px; cursor: default; }
 .toggle { display: block; margin: 12px 0; font-weight: 700; }
 .muted { color: var(--muted); }
 

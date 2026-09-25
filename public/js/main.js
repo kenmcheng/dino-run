@@ -1,6 +1,7 @@
 import {
   DINOS, ITEMS, COURSES, COSTUME_COLORS, FX,
 } from '/shared/data.js';
+import { lobbySetup } from '/shared/lobby.js';
 import { Game3D } from './three/game3d.js';
 import { TIERS, TIER_LABELS } from './three/quality.js';
 import { Studio, thumbnail } from './three/studio.js';
@@ -137,6 +138,13 @@ function renderLobby() {
   }
   for (const el of document.querySelectorAll('.host-only')) el.classList.toggle('hidden', !isHost);
   $('#lobby-wait').classList.toggle('hidden', isHost);
+  $('#lobby-setup').classList.toggle('hidden', isHost);
+  const setup = lobbySetup(L);
+  const card = $('#lobby-course');
+  card.className = `course course-${setup.theme} selected`;
+  card.querySelector('b').textContent = setup.name;
+  card.querySelector('small').textContent = setup.detail;
+  $('#lobby-bots').textContent = setup.bots;
   const cl = $('#course-list');
   cl.innerHTML = '';
   for (const [id, c] of Object.entries(COURSES)) {
