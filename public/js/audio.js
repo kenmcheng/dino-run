@@ -59,4 +59,8 @@ export const sfx = {
   shield: () => tone(1200, 0.2, { type: 'sine', slide: -600 }),
   overheat: () => { tone(900, 0.1); tone(700, 0.1, { delay: 0.12 }); tone(500, 0.2, { delay: 0.24 }); },
   finish: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.2, { delay: i * 0.12, type: 'triangle' })),
+  spray: () => { noise(0.9, 0.06); tone(1400, 0.6, { type: 'sine', slide: -300, vol: 0.02 }); },
+  squeak: () => { tone(900, 0.09, { type: 'sine', slide: 900, vol: 0.1 }); tone(1500, 0.14, { type: 'sine', slide: -700, vol: 0.08, delay: 0.09 }); },
+  splash: () => { noise(0.45, 0.22); tone(420, 0.2, { type: 'sine', slide: -300, vol: 0.06 }); },
+  chirp: () => [0, 0.08, 0.16].forEach((d, i) => tone(1800 + i * 200, 0.06, { type: 'sine', slide: 600, vol: 0.05, delay: d })),
 };

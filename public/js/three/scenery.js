@@ -3,7 +3,29 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { HALF } from './track.js';
+import * as Assets from './assets.js';
 import * as T from './textures.js';
+
+// Blender-built scenery (Assets group 'scenery') replaces the procedural
+// shapes below when it's loaded; the instanced transforms are the same.
+const MESHES = {
+  palm: ['trunk', 'fronds'], jungle_tree: ['trunk', 'canopy'], fern: ['fern'], boulder: ['boulder'], flower: ['stem', 'bloom'],
+  spire: ['spire'], dead_tree: ['dead_tree'], rib: ['rib'], vertebra: ['vertebra'], skull: ['skull'], floodlight: ['tower'],
+};
+const hd = (name) => Assets.withMeshes('scenery', name, MESHES[name]);
+
+// A palm grove: trunks, and fronds that sway in the wind.
+function palmGrove(root, palms, clock, frondColor) {
+  const a = hd('palm');
+  if (a) {
+    root.add(instanced(Assets.geometry(a, 'trunk'), Assets.material(a), palms));
+    root.add(instanced(Assets.geometry(a, 'fronds'), windy(Assets.material(a, { side: THREE.DoubleSide }), clock, 0.35, 9), palms));
+    return;
+  }
+  const pg = palmGeoms();
+  root.add(instanced(pg.trunk, new THREE.MeshStandardMaterial({ map: T.barkTexture(), roughness: 0.9 }), palms));
+  root.add(instanced(pg.fronds, windy(new THREE.MeshStandardMaterial({ color: frondColor, roughness: 0.7, side: THREE.DoubleSide }), clock, 0.35, 9), palms));
+}
 
 // sunDir: direction *towards* the sun (also drives the directional light).
 const THEMES = {
@@ -369,13 +391,19 @@ function buildStadium(track, root, r, clock, anim) {
     root.add(col);
   }
   const lampMat = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fffbe6', emissiveIntensity: 2.2 });
+  const hdTower = hd('floodlight'); // lattice mast + lamp bank
+  const towerMat = hdTower && Assets.material(hdTower, { emissive: '#fffbe6', emissiveIntensity: 2.2 });
   for (const [x, z] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
     const tower = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, 38, 8), steel); pole.position.y = 19; tower.add(pole);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(7, 4.5, 0.6), steel); head.position.y = 39; tower.add(head);
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) {
-      const l = new THREE.Mesh(new THREE.CircleGeometry(0.62, 16), lampMat);
-      l.position.set(-2.4 + i * 1.6, 37.6 + j * 1.4, 0.31); head.add(l);
+    if (hdTower) {
+      tower.add(new THREE.Mesh(Assets.geometry(hdTower, 'tower'), towerMat));
+    } else {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, 38, 8), steel); pole.position.y = 19; tower.add(pole);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(7, 4.5, 0.6), steel); head.position.y = 39; tower.add(head);
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) {
+        const l = new THREE.Mesh(new THREE.CircleGeometry(0.62, 16), lampMat);
+        l.position.set(-2.4 + i * 1.6, -1.4 + j * 1.4, 0.31); head.add(l);
+      }
     }
     tower.position.set(x * 78, 0, z * 70);
     tower.lookAt(0, 0, 0);
@@ -417,10 +445,8 @@ function buildStadium(track, root, r, clock, anim) {
   anim.push({ flags });
 
   // palm trees and a distant city skyline
-  const pg = palmGeoms();
   const palms = scatter(track, 70, HALF + 38, HALF + 80, r).map((p) => ({ p, ry: r() * 6.28, s: 0.9 + r() * 0.5 }));
-  root.add(instanced(pg.trunk, new THREE.MeshStandardMaterial({ map: T.barkTexture(), roughness: 0.9 }), palms));
-  root.add(instanced(pg.fronds, windy(new THREE.MeshStandardMaterial({ color: '#3e9a44', roughness: 0.7, side: THREE.DoubleSide }), clock, 0.35, 9), palms));
+  palmGrove(root, palms, clock, '#3e9a44');
   const bld = [];
   const bldCols = [];
   for (let i = 0; i < 90; i++) {
@@ -446,40 +472,59 @@ function buildStadium(track, root, r, clock, anim) {
 
 // ------------------------------------------------------------------- jungle
 function buildJungle(track, root, r, clock, anim) {
-  const tg = treeGeoms(r);
+  const tg = treeGeoms(r); // (always made: keeps the scatter's random sequence)
   const trees = scatter(track, 420, HALF + 7, HALF + 110, r).map((p) => ({ p, ry: r() * 6.28, s: 0.7 + r() * 0.9 }));
   const canopyCols = trees.map(() => new THREE.Color().setHSL(0.27 + r() * 0.08, 0.5 + r() * 0.2, 0.22 + r() * 0.12));
-  root.add(instanced(tg.trunk, new THREE.MeshStandardMaterial({ map: T.barkTexture(), roughness: 0.95 }), trees));
-  root.add(instanced(tg.canopy, windy(new THREE.MeshStandardMaterial({ roughness: 0.85 }), clock, 0.25, 12), trees, canopyCols));
+  const tree = hd('jungle_tree'); // buttress roots, bark, clumpy leaf canopy (tinted per tree)
+  if (tree) {
+    root.add(instanced(Assets.geometry(tree, 'trunk'), Assets.material(tree), trees));
+    for (const c of canopyCols) c.multiplyScalar(1.25);
+    root.add(instanced(Assets.geometry(tree, 'canopy'), windy(Assets.material(tree), clock, 0.25, 12), trees, canopyCols));
+  } else {
+    root.add(instanced(tg.trunk, new THREE.MeshStandardMaterial({ map: T.barkTexture(), roughness: 0.95 }), trees));
+    root.add(instanced(tg.canopy, windy(new THREE.MeshStandardMaterial({ roughness: 0.85 }), clock, 0.25, 12), trees, canopyCols));
+  }
 
-  const fg = fernGeom();
   const ferns = scatter(track, 1100, HALF + 1.6, HALF + 26, r).map((p) => ({ p, ry: r() * 6.28, s: 0.7 + r() * 1.1 }));
   const fernCols = ferns.map(() => new THREE.Color().setHSL(0.28 + r() * 0.06, 0.55, 0.28 + r() * 0.1));
-  const fern = instanced(fg, windy(new THREE.MeshStandardMaterial({ roughness: 0.8, side: THREE.DoubleSide }), clock, 0.12, 1.2), ferns, fernCols);
+  const hdFern = hd('fern'); // pinnate fronds with baked veins
+  if (hdFern) for (const c of fernCols) c.multiplyScalar(1.3);
+  const fern = hdFern
+    ? instanced(Assets.geometry(hdFern, 'fern'), windy(Assets.material(hdFern, { side: THREE.DoubleSide }), clock, 0.12, 1.2), ferns, fernCols)
+    : instanced(fernGeom(), windy(new THREE.MeshStandardMaterial({ roughness: 0.8, side: THREE.DoubleSide }), clock, 0.12, 1.2), ferns, fernCols);
   root.add(fern);
 
   // palms / cycads near the path
-  const pg = palmGeoms();
   const palms = scatter(track, 80, HALF + 5, HALF + 30, r).map((p) => ({ p, ry: r() * 6.28, s: 0.6 + r() * 0.6 }));
-  root.add(instanced(pg.trunk, new THREE.MeshStandardMaterial({ map: T.barkTexture(), roughness: 0.9 }), palms));
-  root.add(instanced(pg.fronds, windy(new THREE.MeshStandardMaterial({ color: '#2f7a36', roughness: 0.7, side: THREE.DoubleSide }), clock, 0.3, 9), palms));
+  palmGrove(root, palms, clock, '#2f7a36');
 
   // mossy boulders
-  const rock = new THREE.DodecahedronGeometry(1, 1);
-  const rp = rock.attributes.position;
-  for (let i = 0; i < rp.count; i++) rp.setXYZ(i, rp.getX(i) * (0.8 + Math.sin(i * 12.9) * 0.2), rp.getY(i) * 0.7, rp.getZ(i) * (0.8 + Math.cos(i * 7.1) * 0.2));
-  rock.computeVertexNormals();
   const rocks = scatter(track, 140, HALF + 3, HALF + 50, r).map((p) => ({ p, ry: r() * 6, s: 0.6 + r() * 2 }));
-  root.add(instanced(rock, new THREE.MeshStandardMaterial({ color: '#6f7a5f', roughness: 1, flatShading: true }), rocks));
+  const boulder = hd('boulder');
+  if (boulder) {
+    root.add(instanced(Assets.geometry(boulder, 'boulder'), Assets.material(boulder), rocks));
+  } else {
+    const rock = new THREE.DodecahedronGeometry(1, 1);
+    const rp = rock.attributes.position;
+    for (let i = 0; i < rp.count; i++) rp.setXYZ(i, rp.getX(i) * (0.8 + Math.sin(i * 12.9) * 0.2), rp.getY(i) * 0.7, rp.getZ(i) * (0.8 + Math.cos(i * 7.1) * 0.2));
+    rock.computeVertexNormals();
+    root.add(instanced(rock, new THREE.MeshStandardMaterial({ color: '#6f7a5f', roughness: 1, flatShading: true }), rocks));
+  }
 
   // giant glowing flowers
-  const petal = new THREE.SphereGeometry(0.35, 8, 6); petal.scale(1, 0.3, 2); petal.translate(0, 0, 0.5);
-  const petals = [];
-  for (let i = 0; i < 5; i++) { const p = petal.clone(); p.rotateY((i / 5) * Math.PI * 2); petals.push(p); }
-  const bloom = mergeGeometries(petals); bloom.translate(0, 1.2, 0);
   const flowers = scatter(track, 160, HALF + 2, HALF + 18, r).map((p) => ({ p, ry: r() * 6, s: 0.6 + r() * 0.8 }));
   const flowerCols = flowers.map(() => new THREE.Color().setHSL(r() < 0.5 ? 0.9 + r() * 0.08 : 0.08 + r() * 0.06, 0.8, 0.6));
-  root.add(instanced(bloom, new THREE.MeshStandardMaterial({ roughness: 0.5, emissive: '#ff4fa0', emissiveIntensity: 0.15 }), flowers, flowerCols));
+  const flower = hd('flower'); // stem and leaves, cupped petals, glowing centre
+  if (flower) {
+    root.add(instanced(Assets.geometry(flower, 'stem'), Assets.material(flower), flowers));
+    root.add(instanced(Assets.geometry(flower, 'bloom'), Assets.material(flower, { emissive: '#ffd6ec', emissiveIntensity: 0.9 }), flowers, flowerCols));
+  } else {
+    const petal = new THREE.SphereGeometry(0.35, 8, 6); petal.scale(1, 0.3, 2); petal.translate(0, 0, 0.5);
+    const petals = [];
+    for (let i = 0; i < 5; i++) { const p = petal.clone(); p.rotateY((i / 5) * Math.PI * 2); petals.push(p); }
+    const bloom = mergeGeometries(petals); bloom.translate(0, 1.2, 0);
+    root.add(instanced(bloom, new THREE.MeshStandardMaterial({ roughness: 0.5, emissive: '#ff4fa0', emissiveIntensity: 0.15 }), flowers, flowerCols));
+  }
 
   // distant smoking volcano
   root.add(volcanoCone(160, 110, new THREE.Vector3(-420, 0, -380), '#4f5f4c', false));
@@ -555,7 +600,11 @@ function buildVolcano(track, root, r, clock, anim) {
   const spire = new THREE.ConeGeometry(1, 1, 5);
   const spires = scatter(track, 260, HALF + 4, HALF + 90, r).map((p) => ({ p: p.add(new THREE.Vector3(0, 0, 0)), ry: r() * 6, rz: (r() - 0.5) * 0.4, sv: new THREE.Vector3(0.8 + r() * 1.5, 2 + r() * 7, 0.8 + r() * 1.5) }));
   spires.forEach((s) => { s.p.y = s.sv.y / 2; });
-  root.add(instanced(spire, new THREE.MeshStandardMaterial({ color: '#141016', roughness: 0.25, metalness: 0.4, flatShading: true }), spires));
+  const hdSpire = hd('spire'); // glassy shard clusters (same unit box as the cone)
+  root.add(hdSpire
+    ? instanced(Assets.geometry(hdSpire, 'spire'), Assets.material(hdSpire), spires)
+    : instanced(spire, new THREE.MeshStandardMaterial({ color: '#141016', roughness: 0.25, metalness: 0.4, flatShading: true }), spires));
+  const hdDead = hd('dead_tree'); // charred, cracked, embers glowing near the roots
   const branchParts = [];
   const trunkG = new THREE.CylinderGeometry(0.15, 0.3, 5, 6); trunkG.translate(0, 2.5, 0); branchParts.push(trunkG);
   for (let i = 0; i < 4; i++) {
@@ -565,33 +614,49 @@ function buildVolcano(track, root, r, clock, anim) {
   }
   const deadTree = mergeGeometries(branchParts);
   const dead = scatter(track, 70, HALF + 5, HALF + 45, r).map((p) => ({ p, ry: r() * 6, s: 0.8 + r() * 0.6 }));
-  root.add(instanced(deadTree, new THREE.MeshStandardMaterial({ color: '#2a1d18', roughness: 1 }), dead));
+  root.add(hdDead
+    ? instanced(Assets.geometry(hdDead, 'dead_tree'), Assets.material(hdDead, { emissive: '#ff5a10', emissiveIntensity: 1.6 }), dead)
+    : instanced(deadTree, new THREE.MeshStandardMaterial({ color: '#2a1d18', roughness: 1 }), dead));
 
   // a giant fossil ribcage the track runs through
   const boneMat = new THREE.MeshStandardMaterial({ color: '#d9ccb0', roughness: 0.6 });
+  const hdRib = hd('rib');
+  const hdVert = hd('vertebra');
+  const hdSkull = hd('skull');
+  const ribMat = hdRib && Assets.material(hdRib);
   const cage = new THREE.Group();
   const x0 = track.length * 0.38;
   for (let i = 0; i < 9; i++) {
-    const rib = new THREE.Mesh(new THREE.TorusGeometry(HALF + 3.5, 0.45 - Math.abs(i - 4) * 0.03, 8, 24, Math.PI), boneMat);
+    const rib = hdRib
+      ? new THREE.Mesh(Assets.geometry(hdRib, 'rib'), ribMat)
+      : new THREE.Mesh(new THREE.TorusGeometry(HALF + 3.5, 0.45 - Math.abs(i - 4) * 0.03, 8, 24, Math.PI), boneMat);
     const s = 0.85 + Math.sin((i / 8) * Math.PI) * 0.35;
     track.place(rib, x0 + i * 3.2, 0, 0); // torus arc lies in local XY: spans across the track
     rib.scale.set(1, s, 1);
     rib.castShadow = true;
     cage.add(rib);
   }
+  const vertMat = hdVert && Assets.material(hdVert);
   for (let i = 0; i < 12; i++) {
-    const v = new THREE.Mesh(new THREE.SphereGeometry(0.8, 10, 8), boneMat);
+    const v = hdVert ? new THREE.Mesh(Assets.geometry(hdVert, 'vertebra'), vertMat) : new THREE.Mesh(new THREE.SphereGeometry(0.8, 10, 8), boneMat);
     const o = track.pose(x0 - 2 + i * 2.6, 3);
     v.position.copy(o.p); v.position.y += (HALF + 3.5) * (0.85 + Math.sin((i / 11) * Math.PI) * 0.35);
     v.scale.set(1, 0.7, 1.3); v.castShadow = true;
     cage.add(v);
   }
   const skull = new THREE.Group();
-  const sk = new THREE.Mesh(new THREE.SphereGeometry(3.2, 16, 12), boneMat); sk.scale.set(1, 0.8, 1.6);
-  const jawM = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1, 5), boneMat); jawM.position.set(0, -2.2, 1.5); jawM.rotation.x = 0.35;
-  const socket = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 8), new THREE.MeshBasicMaterial({ color: '#ff4a10' }));
-  const s2 = socket.clone(); socket.position.set(1.8, 0.8, 1.8); s2.position.set(-1.8, 0.8, 1.8);
-  skull.add(sk, jawM, socket, s2);
+  if (hdSkull) {
+    // sculpted fossil skull; the eye sockets glow with lava light
+    const m = new THREE.Mesh(Assets.geometry(hdSkull, 'skull'), Assets.material(hdSkull, { emissive: '#ff6a1a', emissiveIntensity: 2.5 }));
+    m.castShadow = true;
+    skull.add(m);
+  } else {
+    const sk = new THREE.Mesh(new THREE.SphereGeometry(3.2, 16, 12), boneMat); sk.scale.set(1, 0.8, 1.6);
+    const jawM = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1, 5), boneMat); jawM.position.set(0, -2.2, 1.5); jawM.rotation.x = 0.35;
+    const socket = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 8), new THREE.MeshBasicMaterial({ color: '#ff4a10' }));
+    const s2 = socket.clone(); socket.position.set(1.8, 0.8, 1.8); s2.position.set(-1.8, 0.8, 1.8);
+    skull.add(sk, jawM, socket, s2);
+  }
   track.place(skull, x0 - 8, HALF + 9, 2.4);
   skull.rotateY(-0.8);
   cage.add(skull);

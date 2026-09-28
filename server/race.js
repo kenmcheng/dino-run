@@ -1,7 +1,7 @@
 // Server-authoritative race simulation. Pure logic: no sockets, no timers,
 // so it can be stepped deterministically in tests.
 import {
-  DINOS, TRACK_W, TICK_RATE, FX, SKILL, JUMP, buildCourse, itemWeights, lateralStep,
+  DINOS, TRACK_W, TICK_RATE, FX, SKILL, JUMP, WEAPONS, buildCourse, itemWeights, lateralStep,
 } from '../shared/data.js';
 
 export const DT = 1 / TICK_RATE;
@@ -23,7 +23,7 @@ function makeRunner(e, i, n) {
     id: e.id, name: e.name, dino: Object.hasOwn(DINOS, e.dino) ? e.dino : 'trex', color: e.color, bot: !!e.bot,
     x: 0, y: ((i + 0.5) * TRACK_W) / n, z: 0, vz: 0, v: 0, vy: 0,
     sprintSince: null, jumpT: -99, draftT: 0,
-    heat: 0, overheat: 0, item: null, pending: null, roll: 0, cd: 5, taunt: 0,
+    heat: 0, overheat: 0, item: null, pending: null, roll: 0, cd: 5, taunt: 0, swingAt: null,
     fx, input: { steer: 0, sprint: false, brake: false },
     queued: { jump: false, item: false, ability: false, taunt: false },
     finished: false, finishTime: null, place: i + 1,
@@ -86,6 +86,7 @@ export class Race {
     for (const r of this.runners) if (r.bot && !r.finished) this.botThink(r);
     for (const r of this.runners) this.stepRunner(r);
     this.collide();
+    this.stepSprays();
     this.stepProjectiles();
     this.stepHazards();
     this.stepEggs();
@@ -132,6 +133,12 @@ export class Race {
     }
 
     const disabled = f.trip > 0;
+    // the mallet lands at the end of the swing (knocked over mid-swing: it misses)
+    if (r.swingAt !== null && (disabled || this.time >= r.swingAt)) {
+      if (!disabled) this.bonk(r);
+      else f.swing = 0;
+      r.swingAt = null;
+    }
     if (!disabled) {
       if (q.jump && r.z === 0 && !f.glide) { r.vz = JUMP_V; r.jumpT = this.time; }
       if (q.item && r.item && r.roll === 0) this.useItem(r);
@@ -169,6 +176,7 @@ export class Race {
     // Overheat caps every speed-up above: boosts/charges can't beat the waddle.
     if (r.overheat > 0) target = 3.5;
     if (f.deflate) target *= 0.72;
+    if (f.soaked) target *= WEAPONS.soakSlow; // wet foam is heavy
     if (grounded && inZones(this.course.mud, r.x)) target *= 0.72;
     if (grounded && this.inTar(r)) target *= 0.42;
     if (f.stumble) target *= 0.45;
@@ -269,6 +277,54 @@ export class Race {
     return true;
   }
 
+  // Water: slows (wet foam is heavy) but also cools the costume down. Called
+  // every tick while a jet is on someone, so only the first contact is announced.
+  soak(t, src, dur, cause) {
+    if (t.finished) return false;
+    if (this.immune(t)) return false;
+    if (t.fx.shield > 0) {
+      t.fx.shield = 0;
+      this.emit('shield', { id: t.id, by: src?.id, cause });
+      return false;
+    }
+    const fresh = t.fx.soaked === 0;
+    t.fx.soaked = Math.max(t.fx.soaked, dur);
+    if (fresh) {
+      if (src && src !== t) src.stats.hits++;
+      this.emit('soak', { id: t.id, by: src?.id, cause });
+    }
+    return true;
+  }
+
+  // Squeaky Mallet: bonks everyone beside or just ahead when the swing lands.
+  bonk(r) {
+    this.emit('squeak', { id: r.id });
+    for (const o of this.others(r)) {
+      const dx = o.x - r.x;
+      if (dx > -1.2 && dx < 3 && Math.abs(o.y - r.y) < 1.5 && o.z < 1.4) this.hit(o, r, 'mallet', 1.1);
+    }
+  }
+
+  // Water Blaster: the jet runs straight ahead along the shooter's line and
+  // soaks the first runner it reaches, shoving them out of the stream.
+  stepSprays() {
+    for (const r of this.runners) {
+      if (!(r.fx.spray > 0) || r.finished) continue;
+      if (r.fx.trip > 0) { r.fx.spray = 0; continue; } // knocked over: dropped it
+      const target = this.others(r)
+        .filter((o) => {
+          const dx = o.x - r.x;
+          return dx > 0.4 && dx < WEAPONS.sprayReach && o.z < 1.6 && Math.abs(o.y - r.y) < 0.5 + dx * 0.025;
+        })
+        .sort((a, b) => a.x - b.x)[0];
+      if (target && this.soak(target, r, WEAPONS.soak, 'blaster')) {
+        target.heat = Math.max(0, target.heat - 1.5 * DT);
+        const away = target.y >= r.y ? 1 : -1;
+        target.y = clamp(target.y + away * 1.2 * DT, 0.3, TRACK_W - 0.3);
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- items
   rollItem(r) {
     const n = this.runners.length;
@@ -314,6 +370,34 @@ export class Race {
       case 'ash':
         for (const o of ahead) this.status(o, r, 'ash', 3.5, 'ash');
         break;
+      case 'blaster': r.fx.spray = WEAPONS.spray; break;
+      case 'mallet':
+        r.fx.swing = WEAPONS.swing;
+        r.swingAt = this.time + WEAPONS.swingHit;
+        break;
+      case 'balloon': {
+        // lobbed at the nearest runner ahead; it aims where they'll be, then
+        // commits halfway through the flight (so a late sidestep dodges it)
+        const t = ahead.filter((o) => o.x - r.x < 30).sort((a, b) => a.x - b.x)[0];
+        this.projectiles.push({
+          id: this.nextId++, type: 'balloon', owner: r.id, target: t?.id ?? null, t: 0,
+          x0: r.x + 0.5, y0: r.y, x: r.x + 0.5, y: r.y,
+          tx: t ? t.x + t.v * WEAPONS.balloonFlight : r.x + 14, ty: t ? t.y : r.y, delay: WEAPONS.balloonFlight,
+        });
+        break;
+      }
+      case 'hatch': {
+        // three babies, each after a different runner ahead (or the same one)
+        const targets = [...ahead].sort((a, b) => a.x - b.x);
+        [-0.55, 0, 0.55].forEach((dy, i) => {
+          const t = targets[i] || targets[0];
+          this.projectiles.push({
+            id: this.nextId++, type: 'hatch', owner: r.id, target: t?.id ?? null,
+            x: r.x + 0.6, y: clamp(r.y + dy, 0.3, TRACK_W - 0.3), vx: Math.max(r.v + 4.5, 13.5), life: WEAPONS.hatchLife,
+          });
+        });
+        break;
+      }
       default: break;
     }
   }
@@ -421,6 +505,43 @@ export class Race {
         for (const o of this.runners) {
           if (Math.abs(o.x - p.x) < 2.2 && Math.abs(o.y - p.y) < 1.6) this.hit(o, src, 'meteor', 1.8);
         }
+      } else if (p.type === 'balloon') {
+        p.t += DT;
+        const k = Math.min(1, p.t / WEAPONS.balloonFlight);
+        const t = p.target && this.byId.get(p.target);
+        if (t && !t.finished && k < 0.5) {
+          p.tx = t.x + t.v * (WEAPONS.balloonFlight - p.t);
+          p.ty = t.y;
+        }
+        p.x = p.x0 + (p.tx - p.x0) * k;
+        p.y = p.y0 + (p.ty - p.y0) * k;
+        p.delay = Math.max(0, WEAPONS.balloonFlight - p.t);
+        if (p.delay > 0) { keep.push(p); continue; }
+        this.emit('splash', { x: p.x, y: p.y, by: p.owner });
+        const src = this.byId.get(p.owner);
+        for (const o of this.runners) {
+          if (o.id === p.owner || Math.abs(o.x - p.x) > 2.2 || Math.abs(o.y - p.y) > 1.4 || o.z > 1.5) continue;
+          if (this.soak(o, src, WEAPONS.balloonSoak, 'balloon')) {
+            o.fx.stumble = Math.max(o.fx.stumble, 0.8);
+            o.heat = Math.max(0, o.heat - 1);
+          }
+        }
+      } else if (p.type === 'hatch') {
+        p.life -= DT;
+        const t = p.target && this.byId.get(p.target);
+        if (t && !t.finished && t.x > p.x - 1) p.y = approach(p.y, t.y, 3.2 * DT);
+        p.x += p.vx * DT;
+        let alive = p.life > 0 && p.x < this.course.length;
+        for (const o of this.runners) {
+          if (!alive || o.id === p.owner || o.finished) continue;
+          if (Math.abs(o.x - p.x) < 0.7 && Math.abs(o.y - p.y) < 0.5 && o.z < 0.45 && !o.fx.glide) {
+            if (o.fx.trip > 0 || o.fx.ifr > 0) continue; // already down: scurry past
+            this.hit(o, this.byId.get(p.owner), 'hatch', 0.8);
+            this.emit('nip', { id: o.id, x: p.x, y: p.y });
+            alive = false;
+          }
+        }
+        if (alive) keep.push(p);
       }
     }
     this.projectiles = keep;
@@ -519,6 +640,12 @@ export class Race {
       ai.ty = clamp(ty, 0.4, TRACK_W - 0.4);
     }
     inp.steer = clamp((ai.ty - r.y) * 2.2, -1, 1);
+    if (f.spray > 0) {
+      // aim the Water Blaster: follow the nearest runner ahead with the jet
+      const tgt = this.others(r).filter((o) => o.x - r.x > 0.4 && o.x - r.x < WEAPONS.sprayReach)
+        .sort((a, b) => a.x - b.x)[0];
+      if (tgt) inp.steer = clamp((tgt.y - r.y) * 3, -1, 1);
+    }
 
     if (inZones(this.course.water, r.x)) ai.sprint = true;
     else if (r.heat > d.heatCap * 0.82) ai.sprint = false;
@@ -535,6 +662,11 @@ export class Race {
     for (const h of this.hazards) {
       if (h.type === 'peel' && Math.abs(h.y - r.y) < 0.6 && jumpWindow(h.x - r.x)) r.queued.jump = true;
     }
+    // sometimes spot a hatchling at your heels and hop over it
+    for (const p of this.projectiles) {
+      if (p.type === 'hatch' && p.owner !== r.id && r.x - p.x > 0 && r.x - p.x < 1.8
+        && Math.abs(p.y - r.y) < 0.6 && this.rng() < 0.08) r.queued.jump = true;
+    }
 
     if (r.item && r.roll === 0) {
       ai.itemT -= DT;
@@ -543,9 +675,12 @@ export class Race {
         const others = this.others(r);
         const ahead = others.some((o) => o.x - r.x > 1 && o.x - r.x < 14 && Math.abs(o.y - r.y) < 0.5);
         const behind = others.some((o) => r.x - o.x > 0.5 && r.x - o.x < 8);
+        const near = (lo, hi, dy) => others.some((o) => o.x - r.x > lo && o.x - r.x < hi && Math.abs(o.y - r.y) < dy);
         const use = {
           egg: ahead, peel: behind || this.rng() < 0.05, tar: behind || this.rng() < 0.05,
           water: r.heat > d.heatCap * 0.6, boba: true, meteor: true, pin: true, ash: true, amber: true,
+          blaster: near(1, 9, 1.2), mallet: near(-1, 2.6, 1.3), balloon: near(5, 26, 9),
+          hatch: others.some((o) => o.x > r.x),
         }[r.item];
         if (use) r.queued.item = true;
       }
@@ -586,7 +721,8 @@ export class Race {
           round(r.cd / DINOS[r.dino].cd), r.taunt > 0 ? 1 : 0, r.finished ? r.finishTime : 0,
         ];
       }),
-      pj: this.projectiles.map((p) => [p.id, p.type, round(p.x), round(p.y), round(p.delay ?? 0)]),
+      // [id, type, x, y, delay (meteor fall / balloon flight left), landing x, landing y]
+      pj: this.projectiles.map((p) => [p.id, p.type, round(p.x), round(p.y), round(p.delay ?? 0), round(p.tx ?? p.x), round(p.ty ?? p.y)]),
       hz: this.hazards.map((h) => [h.id, h.type, round(h.x), round(h.y)]),
       eg: this.eggs.filter((e) => e.respawn > 0).map((e) => e.id),
     };

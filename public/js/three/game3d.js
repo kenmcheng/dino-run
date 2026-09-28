@@ -12,6 +12,7 @@ import { buildScenery } from './scenery.js';
 import { Props } from './props.js';
 import { Particles } from './fx.js';
 import { buildDino } from './dino3d.js';
+import * as Assets from './assets.js';
 import * as T from './textures.js';
 import { QUALITY, createPerf, nextTier } from './quality.js';
 
@@ -70,6 +71,9 @@ export class Game3D {
     this.shake = 0;
     this.blobTex = blobTexture();
     this.ringGeom = new THREE.RingGeometry(0.8, 1, 48);
+    this.tmpV = new THREE.Vector3();
+    this.tmpD = new THREE.Vector3();
+    this.tmpW = new THREE.Vector3();
     this.perf = createPerf();
     this.onTierChange = null;
     let pref = 'auto';
@@ -149,6 +153,13 @@ export class Game3D {
 
   // --------------------------------------------------------------- setup
   async load(courseId, runners, meId) {
+    // Blender costumes for everyone in the race (and the arch mascot); anything
+    // that isn't ready in time falls back to its procedural model
+    await Promise.all([
+      Assets.ready('costumes', [...runners.map((r) => r.dino), 'trex']),
+      Assets.ready('props'),
+      Assets.ready('scenery'),
+    ]);
     this.clear();
     this.ready = false;
     this.meId = meId;
@@ -285,9 +296,21 @@ export class Game3D {
     const me = this.meId;
     const at = (id, h = 1.4) => { const p = this.runnerPos(id); return p ? p.add(new THREE.Vector3(0, h, 0)) : null; };
     switch (e.k) {
+      case 'splash': {
+        // water balloon bursts: a crown of droplets, mist and a ripple
+        const o = this.track.pose(e.x, e.y);
+        const p = o.p.clone().add(new THREE.Vector3(0, 0.5, 0));
+        this.fx.emit('splash', p, 80, { spread: 0.5 });
+        this.fx.emit('mist', p, 30, { spread: 1.2 });
+        this.ring(o.p.clone().add(new THREE.Vector3(0, 0.08, 0)), '#8fd0ff', 3.2, 0.6);
+        break;
+      }
+      case 'soak': { const p = at(e.id, 1.6); if (p) this.fx.emit('splash', p, 18, { spread: 0.4 }); break; }
       case 'hit': {
         const p = at(e.id, 1.6);
         if (p) this.fx.emit(e.cause === 'egg' ? 'yolk' : 'spark', p, 26, { spread: 0.4 });
+        if (p && e.cause === 'hatch') this.fx.emit('feather', p.clone().setY(p.y - 1.2), 16, { spread: 0.3 });
+        if (p && e.cause === 'mallet') this.ring(p.clone().setY(p.y + 0.9), '#ffe14a', 1.6, 0.35);
         if (p && e.cause === 'peel') this.fx.emit('dust', p.clone().setY(p.y - 1.4), 10, { spread: 0.5 });
         if (e.id === me) this.shake = 0.6;
         break;
@@ -392,6 +415,17 @@ export class Game3D {
           }
         }
         if (r.fx & FX.slow) fx.emit('smoke', foot, 1, { spread: 0.3, tint: '#111111' });
+        if (r.fx & FX.soaked) fx.emit('drip', root.position.clone().add(new THREE.Vector3(0, 0.5 + Math.random() * 1.5, 0)), 3, { spread: 0.45 });
+      }
+      // Water Blaster jet: a stream from the nozzle along the runner's heading
+      if (r.fx & FX.spray && M.m.muzzle(this.tmpV)) {
+        const dir = root.getWorldDirection(this.tmpD);
+        // droplets launched at slightly different speeds spread out into a stream
+        for (let k = 0; k < 3; k++) {
+          const vel = this.tmpW.copy(dir).multiplyScalar(r.v + 11 + k * 2.5);
+          vel.y += 1.1;
+          fx.emit('jet', this.tmpV, 5, { spread: 0.03, vel });
+        }
       }
     }
 

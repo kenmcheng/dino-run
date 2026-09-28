@@ -5,6 +5,7 @@ import { lobbySetup } from '/shared/lobby.js';
 import { Game3D } from './three/game3d.js';
 import { TIERS, TIER_LABELS } from './three/quality.js';
 import { Studio, thumbnail } from './three/studio.js';
+import * as Assets from './three/assets.js';
 import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
 import { Playout } from '/shared/playout.js';
 import { Controls } from './controls.js';
@@ -108,12 +109,21 @@ function refreshTitle() {
     <div class="ab">⚡ <b>${d.abilityName}</b> (Q) — ${d.abilityDesc}</div>`;
 }
 
-// Thumbnails are rendered one per frame so the title screen appears instantly.
+// Thumbnails are rendered one per frame so the title screen appears instantly,
+// and re-rendered when a costume's Blender model arrives (or models are switched).
+const modelKind = (id) => (Assets.get('costumes', id) ? 'hd' : 'classic');
 function fillThumbnails() {
-  const next = cards.find((c) => !c.img.src);
+  const next = cards.find((c) => c.kind !== modelKind(c.id));
   if (!next) return;
+  next.kind = modelKind(next.id);
   next.img.src = thumbnail(next.id, DINOS[next.id].color);
   requestAnimationFrame(fillThumbnails);
+}
+
+function loadCostumes() {
+  if (Assets.modelPref() !== 'hd') return;
+  Assets.load('costumes', profile.dino); // yours first
+  for (const id of Object.keys(DINOS)) Assets.load('costumes', id);
 }
 
 // ---------------------------------------------------------------- lobby
@@ -264,6 +274,12 @@ const HIT_TEXT = {
   charge: (a, b) => `🦏 ${a} bulldozed ${b}`,
   headbutt: (a, b) => `💥 ${a} dome-slammed ${b}`,
   spikes: (a, b) => `🌵 ${b} ran into ${a}'s spikes`,
+  mallet: (a, b) => `🔨 ${a} bonked ${b} with a squeaky mallet`,
+  hatch: (a, b) => `🐣 ${a}'s hatchlings nipped ${b}'s ankles`,
+};
+const SOAK_TEXT = {
+  blaster: (a, b) => `💦 ${a} hosed down ${b}`,
+  balloon: (a, b) => `🎈 ${a}'s water balloon drenched ${b}`,
 };
 
 function feed(text, mine) {
@@ -287,6 +303,15 @@ function onEvent(e) {
       if (mine) sfx.hit();
       break;
     }
+    case 'soak': {
+      const f = SOAK_TEXT[e.cause];
+      if (f) feed(f(e.by ? name(e.by) : 'Someone', name(e.id)), mine);
+      if (e.id === me) flash('💦 SOAKED! Wet foam is heavy', 'bad');
+      break;
+    }
+    case 'splash': if (Math.abs(e.x - runnerX(me)) < 25) sfx.splash(); break;
+    case 'squeak': if (Math.abs(runnerX(e.id) - runnerX(me)) < 15) sfx.squeak(); break;
+    case 'nip': if (e.id === me) sfx.chirp(); break;
     case 'boom': sfx.boom(); break;
     case 'pickup': if (e.id === me) sfx.pickup(); break;
     case 'finish':
@@ -302,6 +327,10 @@ function onEvent(e) {
     case 'item':
       if (e.item === 'pin') feed(`📌 ${name(e.id)} popped everyone's costume!`, mine);
       if (e.item === 'ash') feed(`🌋 ${name(e.id)} unleashed an ash cloud`, mine);
+      if (e.item === 'hatch') feed(`🐣 ${name(e.id)} hatched three hungry raptors!`, mine);
+      if (e.item === 'blaster' && Math.abs(runnerX(e.id) - runnerX(me)) < 20) sfx.spray();
+      if (e.item === 'hatch' && Math.abs(runnerX(e.id) - runnerX(me)) < 20) sfx.chirp();
+      if (e.id === me && e.item === 'blaster') flash('🔫 Steer to aim!', 'info');
       if (e.id === me) sfx.item();
       break;
     case 'overheat':
@@ -353,7 +382,7 @@ function sample(R, now) {
   const prevPj = new Map(a.pj.map((p) => [p[0], p]));
   const projectiles = b.pj.map((p) => {
     const q = prevPj.get(p[0]) || p;
-    return { id: p[0], type: p[1], x: q[2] + (p[2] - q[2]) * k, y: q[3] + (p[3] - q[3]) * k, delay: p[4] };
+    return { id: p[0], type: p[1], x: q[2] + (p[2] - q[2]) * k, y: q[3] + (p[3] - q[3]) * k, delay: q[4] + (p[4] - q[4]) * k, tx: p[5], ty: p[6] };
   });
   return {
     time: a.time + (b.time - a.time) * k,
@@ -640,7 +669,15 @@ qSel.addEventListener('change', () => {
   try { localStorage.setItem('dino-run-quality', qSel.value); } catch { /* ignore */ }
   refreshQualityLabel();
 });
+const mSel = $('#models');
+mSel.value = Assets.modelPref();
+mSel.addEventListener('change', () => { Assets.setModelPref(mSel.value); loadCostumes(); });
+Assets.onAssets(() => {
+  requestAnimationFrame(fillThumbnails);
+  if (S.screen === 'lobby' && S.lobby) renderLobby();
+});
 buildTitle();
+loadCostumes();
 requestAnimationFrame(fillThumbnails);
 setupTouch();
 requestAnimationFrame(frame);

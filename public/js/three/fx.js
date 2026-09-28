@@ -21,6 +21,11 @@ const KINDS = {
   confetti: { colors: ['#e5484d', '#ffd84a', '#3f8fd6', '#5bbf4a', '#ff8fc7', '#9a6fd1'], size: [0.2, 0.2], life: 3, up: 7, rand: 4, gravity: 4, drag: 1.2 },
   firefly:  { colors: ['#d8ff6a', '#fff27a'], size: [0.18, 0.18], life: 3.5, up: 0.1, rand: 0.4, gravity: 0, add: true, twinkle: true },
   speed:    { colors: ['#ffffff'], size: [0.12, 0.02], life: 0.3, up: 0, rand: 0.2, gravity: 0, add: true },
+  // water: the blaster's jet, drips off a soaked costume, a balloon's splash
+  jet:      { colors: ['#e6f6ff', '#9fd8ff', '#ffffff'], size: [0.1, 0.26], life: 0.6, up: 0.6, rand: 0.2, gravity: 7, alpha: 0.9 },
+  drip:     { colors: ['#bfe6ff', '#e6f6ff'], size: [0.08, 0.05], life: 0.6, up: -0.5, rand: 0.3, gravity: 12, alpha: 0.9 },
+  splash:   { colors: ['#e6f6ff', '#8fd0ff', '#ffffff'], size: [0.3, 0.12], life: 0.8, up: 4, rand: 5, gravity: 11, alpha: 0.9 },
+  feather:  { colors: ['#ffd84a', '#ffb347', '#fff3d0'], size: [0.2, 0.2], life: 1.2, up: 2.5, rand: 2, gravity: 2.5, drag: 2 },
 };
 
 class Pool {

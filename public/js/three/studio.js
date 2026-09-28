@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildDino } from './dino3d.js';
+import * as Assets from './assets.js';
 
 function stage(renderer) {
   const scene = new THREE.Scene();
@@ -48,11 +49,13 @@ export class Studio {
   }
 
   show(dino, color, name) {
-    const key = `${dino}|${color}|${name}`;
+    // the key includes the model kind, so the turntable swaps to the Blender
+    // costume as soon as it finishes loading
+    const key = `${dino}|${color}|${name}|${Assets.get('costumes', dino) ? 'hd' : 'classic'}`;
     if (key === this.key) return;
     this.key = key;
     if (this.model) { this.scene.remove(this.model.root); this.model.dispose(); }
-    this.model = buildDino(dino, color, { number: 27, runner: name || 'YOU' });
+    this.model = buildDino(dino, color, { number: 27, runner: name || 'YOU', ownTextures: true });
     this.scene.add(this.model.root);
     this.hop = 0.35;
   }
@@ -76,15 +79,26 @@ export class Studio {
   }
 }
 
-// Offscreen renderer producing cached PNG thumbnails of each costume.
+// Offscreen renderer producing cached PNG thumbnails of each costume. It is
+// released after a few idle seconds so its GPU memory isn't held all game.
 let thumbRenderer = null;
 let thumbScene = null;
 let thumbCam = null;
+let thumbIdle = 0;
 const thumbs = new Map();
 
+function releaseThumbRenderer() {
+  thumbScene.environment?.dispose();
+  thumbRenderer.dispose();
+  thumbRenderer.forceContextLoss();
+  thumbRenderer = null;
+}
+
 export function thumbnail(dino, color) {
-  const key = `${dino}|${color}`;
+  const key = `${dino}|${color}|${Assets.get('costumes', dino) ? 'hd' : 'classic'}`;
   if (thumbs.has(key)) return thumbs.get(key);
+  clearTimeout(thumbIdle);
+  thumbIdle = setTimeout(releaseThumbRenderer, 4000);
   if (!thumbRenderer) {
     thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     thumbRenderer.setSize(220, 200, false);
@@ -96,7 +110,7 @@ export function thumbnail(dino, color) {
     thumbCam.position.set(2.9, 1.9, 4.1);
     thumbCam.lookAt(0, 1.3, 0);
   }
-  const m = buildDino(dino, color, { number: 0, runner: '' });
+  const m = buildDino(dino, color, { number: 0, runner: '', ownTextures: true });
   m.update({ v: 6, z: 0, fx: 0, taunt: false, finished: false, heat: 0, phase: 0.9 }, 1, 0);
   m.root.rotation.y = 0.5;
   thumbScene.add(m.root);

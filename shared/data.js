@@ -78,6 +78,23 @@ export const ITEMS = {
   pin:    { name: 'Deflator Pin', icon: '📌', desc: 'Deflates every inflatable costume ahead.' },
   ash:    { name: 'Ash Cloud',    icon: '🌋', desc: 'Smokes the view of everyone ahead.' },
   water:  { name: 'Ice Water',    icon: '💧', desc: 'Instantly cools your costume.' },
+  blaster: { name: 'Water Blaster', icon: '🔫', desc: 'Soak whoever is ahead: steer to aim the jet. Wet foam is heavy.' },
+  mallet: { name: 'Squeaky Mallet', icon: '🔨', desc: 'Swing a giant inflatable hammer at runners beside or just ahead.' },
+  balloon: { name: 'Water Balloon', icon: '🎈', desc: 'Lob it over the pack onto the runner ahead. Big splash.' },
+  hatch:  { name: 'Raptor Hatchlings', icon: '🐣', desc: 'Three babies chase the runners ahead. Jump them!' },
+};
+
+// Tuning for the attack items (seconds, metres).
+export const WEAPONS = {
+  spray: 2.5,          // Water Blaster jet duration
+  sprayReach: 11,      // how far ahead the jet reaches
+  soak: 1.2,           // soaked time after leaving the jet
+  soakSlow: 0.78,      // speed multiplier while soaked
+  swing: 0.45,         // mallet wind-up + swing; the bonk lands at swingHit
+  swingHit: 0.22,
+  balloonFlight: 0.9,  // water balloon time in the air
+  balloonSoak: 3,
+  hatchLife: 6,        // raptor hatchlings give up after this
 };
 
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -91,9 +108,13 @@ export function itemWeights(frac) {
     amber: lerp(20, 4, frac),
     water: lerp(12, 6, frac),
     tar: lerp(10, 6, frac),
+    mallet: lerp(10, 8, frac),
+    blaster: lerp(6, 14, frac),
+    balloon: lerp(4, 14, frac),
     boba: lerp(3, 26, frac),
     pin: lerp(0, 14, frac),
     ash: lerp(0, 12, frac),
+    hatch: frac > 0.25 ? lerp(0, 12, frac) : 0,
     meteor: frac > 0.45 ? lerp(0, 14, frac) : 0,
   };
 }
@@ -150,6 +171,7 @@ export function buildCourse(id) {
 export const FX = {
   trip: 1, stun: 2, boost: 4, deflate: 8, ash: 16, shield: 32, spikes: 64,
   glide: 128, charge: 256, dash: 512, stumble: 1024, overheat: 2048, slow: 4096, draft: 8192,
+  soaked: 16384, spray: 32768, swing: 65536,
 };
 
 // Sideways movement with a little momentum. Shared so the client can predict

@@ -109,6 +109,23 @@ stragglers get the equalisers.
 🧋 Boba Boost · 🕳️ Tar Pit · 📌 Deflator Pin (deflates every costume ahead) ·
 🌋 Ash Cloud (smokes rivals' screens) · 💧 Ice Water
 
+Four items let you attack rivals up close:
+
+- 🔫 **Water Blaster**: a 2.5 s jet of water. Steer to aim it. It soaks the
+  first runner in the stream and shoves them sideways.
+- 🔨 **Squeaky Mallet**: a giant inflatable hammer. It bonks anyone beside you
+  or just ahead when the swing lands, so a quick sidestep dodges it.
+- 🎈 **Water Balloon**: lobbed over the pack at the runner ahead. A blue
+  marker shows where it will land; it commits halfway through its flight, so
+  you can still dive out of the way. The splash soaks and stumbles everyone
+  nearby.
+- 🐣 **Raptor Hatchlings**: three babies scurry after the runners ahead and
+  nip their ankles. Jump them!
+
+**Soaked** runners are about 22 % slower for a while, because wet foam is
+heavy. The water also cools their costume, which is the one upside of being
+hosed down.
+
 ## Architecture
 
 ```
@@ -127,10 +144,29 @@ public/js/three/
   track.js               course loops (length = sim distance), surfaces, extrusion helpers
   scenery.js             stadium / jungle / volcano environments (instanced crowds, trees, lava…)
   props.js               start arch + mascot, hurdles, water stations, eggs, hazards, projectiles
-  dino3d.js              the costume models (rigged, animated, merged per material)
+  dino3d.js              the costumes: Blender rig or procedural fallback, shared animation
+  assets.js              loads the Blender models (manifest, GLB, WebP), with fallback
   fx.js                  GPU particles (dust, steam, boba, sparks, smoke, embers, mist, confetti…)
   studio.js              title-screen turntable and costume thumbnails
-  textures.js            every texture, painted procedurally on canvases
+  textures.js            every procedural texture, painted on canvases
+public/assets/           Blender-built models and baked textures (generated, see art/)
+art/                     the Blender build: costumes, props and scenery, baked on the GPU
+```
+
+### Models: Blender-built, with procedural fallback
+
+The costumes, items, course props and most scenery are modelled and baked in
+Blender by the scripts in [`art/`](art/README.md). They sculpt a detailed
+high-poly model, then bake its detail into textures on a light game mesh
+using Cycles on the GPU. The game streams these models in and replaces each
+procedural model as soon as its file arrives.
+
+The procedural models stay as the fallback. They are used while a file is
+downloading, when a file fails to load, and when the player picks
+**Models → Classic** on the title screen (or adds `?classic` to the URL).
+
+```powershell
+.\art\build.ps1 -Only trex -Preview   # rebuild a costume (Blender 4.2+)
 ```
 
 ### The 3D world
@@ -212,8 +248,12 @@ public/js/three/
   frame is rendered. A stadium race compiles 0 shaders and uploads 0 textures
   after GO (previously 5 and 12), and auto-quality ignores the first seconds
   after loading.
-- **No asset files.** Every model is built from code and every texture is
-  painted on a canvas. Sound effects are synthesized with WebAudio.
+- **Small, optional asset files.** The Blender models in `public/assets/` are
+  meshopt-compressed GLB files with WebP textures, about 1.3 MB per costume.
+  The race's costumes, props and scenery load before its loading screen
+  closes. Anything that takes longer than 10 s falls back to its procedural
+  model. Without the files, every model is built from code and every texture
+  is painted on a canvas. Sound effects are synthesized with WebAudio.
 - **Disconnects.** A player who drops mid-race is taken over by a bot, so the
   race keeps going.
 

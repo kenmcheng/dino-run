@@ -1,10 +1,20 @@
 // Course furniture and dynamic objects: arch, hurdles, water stations, eggs,
-// hazards and projectiles.
+// hazards and projectiles. Blender-built versions (Assets group 'props') are
+// used when loaded; the procedural ones below are the fallback.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { WEAPONS } from '/shared/data.js';
 import { HALF } from './track.js';
 import { buildDino } from './dino3d.js';
+import * as Assets from './assets.js';
 import * as T from './textures.js';
+
+// Meshes each Blender prop must have to be used (else: the procedural one).
+const MESHES = {
+  arch: ['arch'], log_hurdle: ['log'], bone_hurdle: ['bone', 'stand'], egg: ['egg'], nest: ['nest'],
+  peel: ['peel'], tar: ['tar'], bomb: ['bomb'], meteor: ['meteor'], balloon: ['balloon'], hatchling: ['hatchling'],
+};
+const hdProp = (name) => Assets.withMeshes('props', name, MESHES[name]);
 
 function eggGeometry(w = 0.34, h = 0.46) {
   const pts = [];
@@ -58,9 +68,15 @@ export class Props {
 
     const arch = new THREE.Group();
     const span = HALF + 1.8;
-    const tubeMat = new THREE.MeshPhysicalMaterial({ map: T.stripeTexture('#e5484d', '#ffffff', 10), roughness: 0.4, clearcoat: 0.6 });
-    tubeMat.map = tubeMat.map.clone(); tubeMat.map.repeat.set(6, 1); tubeMat.map.needsUpdate = true;
-    const tube = new THREE.Mesh(new THREE.TorusGeometry(span, 0.75, 20, 48, Math.PI), tubeMat);
+    const hd = hdProp('arch'); // striped air tube with sewn panels + sand bags
+    let tube;
+    if (hd) {
+      tube = new THREE.Mesh(Assets.geometry(hd, 'arch'), Assets.material(hd, { physical: true, clearcoat: 0.6, clearcoatRoughness: 0.3 }));
+    } else {
+      const tubeMat = new THREE.MeshPhysicalMaterial({ map: T.stripeTexture('#e5484d', '#ffffff', 10), roughness: 0.4, clearcoat: 0.6 });
+      tubeMat.map = tubeMat.map.clone(); tubeMat.map.repeat.set(6, 1); tubeMat.map.needsUpdate = true;
+      tube = new THREE.Mesh(new THREE.TorusGeometry(span, 0.75, 20, 48, Math.PI), tubeMat);
+    }
     const TALL = 1.3; // tall enough that the chase camera sees the grid under it
     tube.scale.set(1, TALL, 1);
     tube.castShadow = true;
@@ -92,9 +108,9 @@ export class Props {
     this.mascot.root.position.set(0, span * TALL + 0.3, 0);
     this.mascot.root.rotation.y = Math.PI;
     arch.add(this.mascot.root);
-    // guy ropes and sand bags
+    // sand bags (part of the Blender arch)
     const bagMat = new THREE.MeshStandardMaterial({ color: '#c2a36b', roughness: 1 });
-    for (const s of [-1, 1]) {
+    for (const s of hd ? [] : [-1, 1]) {
       const bag = new THREE.Mesh(new RoundedBoxGeometry(1, 0.5, 0.7, 3, 0.2), bagMat);
       bag.position.set(s * span, 0.25, 0.9); bag.castShadow = true;
       arch.add(bag);
@@ -141,9 +157,22 @@ export class Props {
     const { track } = this;
     const theme = track.theme;
     const len = HALF * 2 + 0.6;
+    const hdLog = theme === 'jungle' && hdProp('log_hurdle');
+    const hdBone = theme !== 'jungle' && hdProp('bone_hurdle');
+    const volcanic = theme === 'volcano';
+    let hdParts = null;
+    if (hdLog) hdParts = [[Assets.geometry(hdLog, 'log'), Assets.material(hdLog)]];
+    if (hdBone) {
+      // the volcano's bones are scorched and glow faintly
+      const boneMat = Assets.material(hdBone, volcanic ? { color: '#4a3a34', emissive: '#ff4a10', emissiveIntensity: 0.25 } : {});
+      if (volcanic) boneMat.emissiveMap = null;
+      hdParts = [[Assets.geometry(hdBone, 'bone'), boneMat], [Assets.geometry(hdBone, 'stand'), Assets.material(hdBone)]];
+    }
     for (const x of track.course.hurdles) {
       const g = new THREE.Group();
-      if (theme === 'jungle') {
+      if (hdParts) {
+        for (const [geom, mat] of hdParts) g.add(new THREE.Mesh(geom, mat));
+      } else if (theme === 'jungle') {
         const log = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, len, 14), new THREE.MeshStandardMaterial({ map: T.barkTexture(), roughness: 1 }));
         log.rotation.z = Math.PI / 2; log.position.y = 0.28;
         g.add(log);
@@ -158,7 +187,6 @@ export class Props {
         }
       } else {
         // a giant fossil bone on two little trestles
-        const volcanic = theme === 'volcano';
         const bone = new THREE.MeshStandardMaterial({ color: volcanic ? '#3a2d2a' : '#efe4c9', roughness: 0.55, emissive: volcanic ? '#ff4a10' : '#000000', emissiveIntensity: volcanic ? 0.25 : 0 });
         const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, len - 0.6, 14), bone);
         shaft.rotation.z = Math.PI / 2; shaft.position.y = 0.5;
@@ -255,24 +283,27 @@ export class Props {
   // ------------------------------------------------------------------ eggs
   buildEggs() {
     const { track } = this;
-    const geom = eggGeometry();
-    const nestGeom = new THREE.TorusGeometry(0.3, 0.08, 8, 18);
-    const nestMat = new THREE.MeshStandardMaterial({ map: T.barkTexture(), color: '#f0d9a0', roughness: 1 });
+    const hdEgg = hdProp('egg');
+    const hdNest = hdProp('nest');
+    const geom = hdEgg ? Assets.geometry(hdEgg, 'egg') : eggGeometry();
+    const nestGeom = hdNest ? Assets.geometry(hdNest, 'nest') : new THREE.TorusGeometry(0.3, 0.08, 8, 18);
+    const nestMat = hdNest ? Assets.material(hdNest) : new THREE.MeshStandardMaterial({ map: T.barkTexture(), color: '#f0d9a0', roughness: 1 });
     const qTex = T.signTexture('?', { bg: 'rgba(0,0,0,0)', fg: '#ffffff', w: 128, h: 128, font: '900 110px system-ui, sans-serif' });
     const qMat = new THREE.SpriteMaterial({ map: qTex, depthWrite: false });
+    const shell = { clearcoat: 1, iridescence: 1, iridescenceIOR: 1.6, iridescenceThicknessRange: [200, 800] };
     track.course.eggs.forEach((e, i) => {
       const hue = (i * 0.137) % 1;
-      const mat = new THREE.MeshPhysicalMaterial({
-        color: new THREE.Color().setHSL(hue, 0.75, 0.68), roughness: 0.15, clearcoat: 1, iridescence: 1,
-        iridescenceIOR: 1.6, iridescenceThicknessRange: [200, 800], map: spottedEggTexture('#ffffff', '#d8d8d8'),
-      });
+      const color = new THREE.Color().setHSL(hue, 0.75, 0.68);
+      const mat = hdEgg
+        ? Assets.material(hdEgg, { physical: true, color, ...shell })
+        : new THREE.MeshPhysicalMaterial({ color, roughness: 0.15, map: spottedEggTexture('#ffffff', '#d8d8d8'), ...shell });
       const egg = new THREE.Mesh(geom, mat);
       egg.castShadow = true;
       const q = new THREE.Sprite(qMat);
       q.scale.setScalar(0.42);
       this.root.add(q);
       const nest = new THREE.Mesh(nestGeom, nestMat);
-      nest.rotation.x = -Math.PI / 2;
+      if (!hdNest) nest.rotation.x = -Math.PI / 2; // the Blender nest is modelled lying flat
       const o = track.pose(e.x, e.y);
       nest.position.copy(o.p); nest.position.y += 0.1;
       nest.receiveShadow = true;
@@ -328,7 +359,11 @@ export class Props {
   template(kind) {
     this.tpl ||= {};
     if (!this.tpl[kind]) {
-      const make = { peel: () => this.makePeel(), tar: () => this.makeTar(), bomb: () => this.makeBomb().obj, meteor: () => this.makeMeteor().obj, ring: () => this.makeMeteor().ring }[kind];
+      const make = {
+        peel: () => this.makePeel(), tar: () => this.makeTar(), bomb: () => this.makeBomb().obj,
+        meteor: () => this.makeMeteor().obj, ring: () => this.makeMeteor().ring,
+        balloon: () => this.makeBalloon(), hatch: () => this.makeHatchling(), marker: () => this.makeMarker(),
+      }[kind];
       this.tpl[kind] = make();
     }
     return this.tpl[kind];
@@ -337,7 +372,7 @@ export class Props {
   // Temporarily place one of everything so the renderer can prepare it.
   prewarm() {
     const o = this.track.pose(4, 3);
-    const temps = ['peel', 'tar', 'bomb', 'meteor', 'ring'].map((k, i) => {
+    const temps = ['peel', 'tar', 'bomb', 'meteor', 'ring', 'balloon', 'hatch', 'marker'].map((k, i) => {
       const m = this.template(k).clone();
       m.position.copy(o.p).addScaledVector(o.r, i - 2);
       m.position.y += 0.5;
@@ -349,6 +384,11 @@ export class Props {
 
   makePeel() {
     const g = new THREE.Group();
+    const hd = hdProp('peel');
+    if (hd) {
+      g.add(new THREE.Mesh(Assets.geometry(hd, 'peel'), Assets.material(hd, { side: THREE.DoubleSide })));
+      return g;
+    }
     const leafShape = new THREE.Shape();
     leafShape.moveTo(0, 0); leafShape.quadraticCurveTo(0.22, 0.35, 0, 0.8); leafShape.quadraticCurveTo(-0.22, 0.35, 0, 0);
     const leaf = new THREE.ShapeGeometry(leafShape, 8);
@@ -367,9 +407,17 @@ export class Props {
 
   makeTar() {
     const g = new THREE.Group();
-    const pit = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshPhysicalMaterial({ color: '#0b0a0c', roughness: 0.05, clearcoat: 1, metalness: 0.2 }));
-    pit.rotation.x = -Math.PI / 2;
-    pit.scale.set(1.5, 1.1, 1);
+    const hd = hdProp('tar');
+    let pit;
+    if (hd) {
+      // lumpy glossy puddle; children after the first are the animated bubbles
+      // glossy but black: damp the sky reflection or it reads as a silver puddle
+      pit = new THREE.Mesh(Assets.geometry(hd, 'tar'), Assets.material(hd, { physical: true, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 0.35 }));
+    } else {
+      pit = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshPhysicalMaterial({ color: '#0b0a0c', roughness: 0.05, clearcoat: 1, metalness: 0.2 }));
+      pit.rotation.x = -Math.PI / 2;
+      pit.scale.set(1.5, 1.1, 1);
+    }
     g.add(pit);
     for (let i = 0; i < 5; i++) {
       const b = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshPhysicalMaterial({ color: '#141216', roughness: 0.05, clearcoat: 1 }));
@@ -386,7 +434,13 @@ export class Props {
       seen.add(p.id);
       let m = this.projectiles.get(p.id);
       if (!m) {
-        m = p.type === 'egg' ? { obj: this.template('bomb').clone() } : { obj: this.template('meteor').clone(), ring: this.template('ring').clone() };
+        m = {
+          egg: () => ({ obj: this.template('bomb').clone() }),
+          balloon: () => ({ obj: this.template('balloon').clone(), ring: this.template('marker').clone() }),
+          hatch: () => ({ obj: this.template('hatch').clone(), seed: p.id * 1.7 }),
+          meteor: () => ({ obj: this.template('meteor').clone(), ring: this.template('ring').clone() }),
+        }[p.type]?.();
+        if (!m) continue;
         this.root.add(m.obj);
         if (m.ring) this.root.add(m.ring);
         this.projectiles.set(p.id, m);
@@ -396,6 +450,26 @@ export class Props {
         m.obj.position.copy(o.p); m.obj.position.y += 1.1 + Math.abs(Math.sin(t * 9)) * 0.2;
         m.obj.rotation.x = t * 20;
         fx.emit('spark', m.obj.position, 1, { spread: 0.1 });
+      } else if (p.type === 'balloon') {
+        // a lob: up from the thrower's hands, over the pack, down on the marker
+        const k = 1 - Math.max(0, p.delay) / WEAPONS.balloonFlight;
+        m.obj.position.copy(o.p);
+        m.obj.position.y += 1.4 - 1.0 * k + 12.8 * k * (1 - k);
+        m.obj.rotation.set(t * 5, t * 3, Math.sin(t * 11) * 0.3);
+        const wob = 1 + Math.sin(t * 16) * 0.08;
+        m.obj.scale.set(wob, 2 - wob, wob);
+        const land = this.track.pose(p.tx, p.ty);
+        m.ring.position.copy(land.p); m.ring.position.y += 0.07;
+        const pulse = 1 + Math.sin(t * 14) * 0.1;
+        m.ring.scale.setScalar(1.6 * pulse);
+        m.ring.lookAt(m.ring.position.clone().add(new THREE.Vector3(0, 1, 0)));
+      } else if (p.type === 'hatch') {
+        // a baby raptor scurrying along the track: bobbing, waddling, facing ahead
+        m.obj.position.copy(o.p);
+        m.obj.position.y += Math.abs(Math.sin(t * 20 + m.seed)) * 0.1;
+        m.obj.lookAt(m.obj.position.clone().add(o.t));
+        m.obj.rotateZ(Math.sin(t * 20 + m.seed) * 0.18);
+        if (Math.random() < 0.3) fx.emit('dust', o.p.clone().add(new THREE.Vector3(0, 0.05, 0)), 1, { spread: 0.1 });
       } else {
         m.ring.position.copy(o.p); m.ring.position.y += 0.06;
         const pulse = 1 + Math.sin(t * 18) * 0.08;
@@ -413,7 +487,55 @@ export class Props {
     }
   }
 
+  // Water Balloon: a knotted, glossy, slightly see-through latex balloon.
+  makeBalloon() {
+    const hd = hdProp('balloon');
+    if (hd) {
+      const m = new THREE.Mesh(Assets.geometry(hd, 'balloon'), Assets.material(hd, { physical: true, clearcoat: 1, clearcoatRoughness: 0.1, transparent: true, opacity: 0.9 }));
+      m.castShadow = true;
+      return m;
+    }
+    const g = new THREE.Group();
+    const mat = new THREE.MeshPhysicalMaterial({ color: '#4aa8ff', roughness: 0.15, clearcoat: 1, transparent: true, opacity: 0.85 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.24, 20, 14), mat);
+    body.scale.set(1, 1.15, 1);
+    const knot = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.08, 8), mat);
+    knot.position.y = -0.3;
+    g.add(body, knot);
+    return g;
+  }
+
+  // Where the balloon will land: a pulsing blue target on the track.
+  makeMarker() {
+    return new THREE.Mesh(new THREE.RingGeometry(0.75, 1, 40), new THREE.MeshBasicMaterial({ color: '#4aa8ff', transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+  }
+
+  // Raptor Hatchling: a baby inflatable raptor with bits of eggshell on its head.
+  makeHatchling() {
+    const hd = hdProp('hatchling');
+    if (hd) {
+      const m = new THREE.Mesh(Assets.geometry(hd, 'hatchling'), Assets.material(hd, { physical: true, sheen: 0.6, clearcoat: 0.3 }));
+      m.castShadow = true;
+      return m;
+    }
+    const g = new THREE.Group();
+    const skin = new THREE.MeshPhysicalMaterial({ color: '#f2a93b', roughness: 0.5, sheen: 0.6 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), skin); body.position.y = 0.3; body.scale.set(1, 0.9, 1.3);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), skin); head.position.set(0, 0.52, 0.2);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.35, 10), skin); tail.rotation.x = -Math.PI / 2 - 0.3; tail.position.set(0, 0.32, -0.35);
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2.4), new THREE.MeshStandardMaterial({ color: '#fbf4e2', roughness: 0.6, side: THREE.DoubleSide }));
+    shell.position.set(0, 0.56, 0.2);
+    g.add(body, head, tail, shell);
+    return g;
+  }
+
   makeBomb() {
+    const hd = hdProp('bomb');
+    if (hd) {
+      const obj = new THREE.Mesh(Assets.geometry(hd, 'bomb'), Assets.material(hd, { emissive: '#ff8a2a', emissiveIntensity: 2.5 }));
+      obj.castShadow = true;
+      return { obj };
+    }
     const egg = new THREE.Mesh(eggGeometry(0.22, 0.3), new THREE.MeshPhysicalMaterial({ map: spottedEggTexture('#fbf4e2', '#e5484d'), roughness: 0.3, clearcoat: 0.8 }));
     egg.castShadow = true;
     const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.2), new THREE.MeshStandardMaterial({ color: '#333' }));
@@ -422,6 +544,12 @@ export class Props {
   }
 
   makeMeteor() {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color: '#ff2a10', transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
+    const hd = hdProp('meteor');
+    if (hd) {
+      // basalt with molten cracks: the glow mask drives the bloom
+      return { obj: new THREE.Mesh(Assets.geometry(hd, 'meteor'), Assets.material(hd, { emissive: '#ff6a1a', emissiveIntensity: 3 })), ring };
+    }
     const geom = new THREE.IcosahedronGeometry(1.2, 2);
     const p = geom.attributes.position;
     for (let i = 0; i < p.count; i++) {
@@ -430,7 +558,6 @@ export class Props {
     }
     geom.computeVertexNormals();
     const rock = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: '#3a2620', emissive: '#ff5a10', emissiveIntensity: 0.9, roughness: 0.8, flatShading: true }));
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40), new THREE.MeshBasicMaterial({ color: '#ff2a10', transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
     return { obj: rock, ring };
   }
 }

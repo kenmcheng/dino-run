@@ -1,13 +1,22 @@
-// A runner in an inflatable dinosaur costume, built procedurally.
+// A runner in an inflatable dinosaur costume.
 //
-// The costume body (tail → belly → neck) is ONE skinned mesh swept along a
-// spine curve, so it reads as a single inflated nylon shell. Bones along the
-// spine drive the tail sway and neck bob. The head, arms, face window, fan and
-// species extras hang off those bones. Model space: feet on y=0, facing +z.
+// Two builders produce the same rig (named joints the animation drives):
+//  - hdRig(): the Blender-built costume from public/assets (art/blender/costumes.py),
+//    one skinned mesh per material with baked normals, occlusion and colour masks.
+//  - proceduralRig(): the original costume built from code. It is the fallback
+//    when the Blender asset isn't loaded (yet), fails, or "Classic" models are on.
+// makeRunner() then adds the shared animation, effects and name tag.
+//
+// Procedural build: the costume body (tail → belly → neck) is ONE skinned mesh
+// swept along a spine curve, so it reads as a single inflated nylon shell. Bones
+// along the spine drive the tail sway and neck bob. The head, arms, face window,
+// fan and species extras hang off those bones. Model space: feet on y=0, facing +z.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { FX } from '/shared/data.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { FX, WEAPONS } from '/shared/data.js';
+import * as Assets from './assets.js';
 import * as T from './textures.js';
 
 const HIP = 0.92;
@@ -588,7 +597,136 @@ function plateGeom() {
 }
 
 // ------------------------------------------------------------ assembly
-export function buildDino(name, color, { number = 1, runner = '' } = {}) {
+// opts: { number, runner, ownTextures }. ownTextures gives this model its own
+// copies of the HD textures, so a second renderer (title turntable,
+// thumbnails) frees its GPU copy when the model is disposed.
+export function buildDino(name, color, opts = {}) {
+  const asset = Assets.get('costumes', name);
+  let rig = null;
+  if (asset) {
+    try { rig = hdRig(asset, name, color, opts); } catch (err) { console.warn(`[dino3d] HD ${name} failed, using the procedural costume`, err); }
+  }
+  return makeRunner(rig || proceduralRig(name, color, opts), name, opts.number ?? 1);
+}
+
+// ------------------------------------------------------------ Blender costume
+// Mask texture: R dark markings, G belly, B accent, A baked occlusion (0.2..1).
+// The runner's colours are applied here, so one texture set serves every colour.
+const HD_FABRIC_MAP = `
+  vec4 hdMask = texture2D( map, vMapUv );
+  vec3 hdCol = mix( uBase, uBelly, hdMask.g );
+  hdCol = mix( hdCol, uDark, hdMask.r );
+  hdCol = mix( hdCol, uAccent, hdMask.b );
+  diffuseColor.rgb *= hdCol;
+  float hdAO = clamp( ( hdMask.a - 0.2 ) / 0.8, 0.0, 1.0 );`;
+const HD_FABRIC_AO = `
+  reflectedLight.indirectDiffuse *= mix( 1.0, hdAO, 0.9 );
+  reflectedLight.indirectSpecular *= mix( 1.0, hdAO, 0.9 );
+  reflectedLight.directDiffuse *= mix( 1.0, hdAO, 0.5 );`;
+
+function hdFabric(tex, pal, membrane) {
+  const m = new THREE.MeshPhysicalMaterial({
+    map: tex.mask, normalMap: tex.normal, normalScale: new THREE.Vector2(1, -1), // glTF tangents: flip green
+    roughness: 0.5, sheen: 0.7, sheenRoughness: 0.35, sheenColor: pal.light, clearcoat: 0.3, clearcoatRoughness: 0.45,
+    emissive: new THREE.Color('#ff2a00'), emissiveIntensity: 0,
+    ...(membrane ? { transparent: true, opacity: 0.92, side: THREE.DoubleSide } : {}),
+  });
+  const uniforms = { uBase: { value: pal.base }, uBelly: { value: pal.belly }, uDark: { value: pal.dark }, uAccent: { value: pal.accent } };
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, uniforms);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uBase, uBelly, uDark, uAccent;')
+      .replace('#include <map_fragment>', HD_FABRIC_MAP)
+      .replace('#include <aomap_fragment>', HD_FABRIC_AO);
+  };
+  m.customProgramCacheKey = () => 'hd-fabric';
+  return m;
+}
+
+// Trim: baked colour; ORM = occlusion, roughness, and (B) where the runner's
+// sneaker colour is applied.
+function hdTrim(tex, sneaker) {
+  const m = new THREE.MeshStandardMaterial({
+    map: tex.color, roughnessMap: tex.orm, aoMap: tex.orm, aoMapIntensity: 0.9, normalMap: tex.normal,
+    normalScale: new THREE.Vector2(1, -1), roughness: 1, metalness: 0,
+  });
+  const tint = { value: new THREE.Color(sneaker) };
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uTint = tint;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uTint;')
+      .replace('#include <map_fragment>', `
+        vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+        float hdTint = texture2D( roughnessMap, vRoughnessMapUv ).b;
+        diffuseColor.rgb *= mix( sampledDiffuseColor.rgb, sampledDiffuseColor.rgb * uTint, hdTint );`);
+  };
+  m.customProgramCacheKey = () => 'hd-trim';
+  return m;
+}
+
+const HD_BOUNDS = new THREE.Sphere(new THREE.Vector3(0, 1.2, -0.2), 3.3);
+
+function copyTextures(t) {
+  return Object.fromEntries(Object.entries(t).map(([k, slots]) => [k, Object.fromEntries(Object.entries(slots).map(([s, tx]) => [s, tx.clone()]))]));
+}
+
+function hdRig(asset, name, color, { number = 1, runner = '', ownTextures = false } = {}) {
+  const pal = palette(color);
+  const tex = ownTextures ? copyTextures(asset.textures) : asset.textures;
+  const root = new THREE.Group();
+  const model = SkeletonUtils.clone(asset.scene);
+  root.add(model);
+  const get = (n) => model.getObjectByName(n) || null;
+  const pivot = get('pivot');
+  const torso = get('torso');
+  if (!pivot || !torso) throw new Error('costume rig has no pivot/torso');
+  const spine = [];
+  for (let i = 0; get(`spine_${i}`); i++) spine.push(get(`spine_${i}`));
+  const rootIdx = spine.findIndex((b) => b.parent === torso);
+  const legs = [0, 1].map((i) => ({ hip: get(`hip_${i}`), knee: get(`knee_${i}`), ankle: get(`ankle_${i}`) }));
+  const arms = [0, 1].map((i) => {
+    const a = get(`arm_${i}`);
+    const w = get(`wing_${i}`);
+    if (a && w) a.userData.wing = w;
+    return a;
+  }).filter(Boolean);
+  const eyes = [0, 1].map((i) => get(`lid_${i}`)).filter(Boolean).map((lid) => ({ lid }));
+
+  const skin = SKIN[number % SKIN.length];
+  const hair = HAIR[number % HAIR.length];
+  const faceMat = new THREE.MeshStandardMaterial({ map: T.humanFace('happy', skin, hair), roughness: 0.8 });
+  const bibMat = new THREE.MeshStandardMaterial({ map: T.bibTexture(number, runner), roughness: 0.85, side: THREE.DoubleSide });
+  const fabric = hdFabric(tex.fabric, pal, false);
+  const membrane = hdFabric(tex.fabric, pal, true);
+  const trim = hdTrim(tex.trim, SNEAKERS[number % SNEAKERS.length]);
+  const pick = { fabric, membrane, trim, face: faceMat, window: M.window, bib: bibMat };
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    const kind = o.material.name;
+    o.material = pick[kind] || fabric;
+    // bones move the skin outside its rest-pose bounds, so cull against a fixed
+    // sphere that holds the whole costume in any pose (tail, wings, a full trip)
+    o.boundingSphere = HD_BOUNDS;
+    o.castShadow = kind === 'fabric' || kind === 'trim' || kind === 'membrane';
+    o.receiveShadow = kind === 'fabric' || kind === 'trim';
+    if (kind === 'window') { o.renderOrder = 2; o.castShadow = false; }
+  });
+  return {
+    hd: true, root, pivot, torso, legs, arms, eyes, jaw: get('jaw'), fan: get('fan'),
+    tailBones: spine.slice(0, rootIdx).reverse(), neckBones: spine.slice(rootIdx + 1),
+    hotMats: [fabric, membrane], faceMat, face: { skin, hair },
+    lidRest: LID_OPEN, // lids are modelled open; the bone rotates them shut
+    dispose() {
+      for (const m of [fabric, membrane, trim, faceMat]) m.dispose();
+      bibMat.map.dispose(); bibMat.dispose();
+      if (ownTextures) for (const slots of Object.values(tex)) for (const t of Object.values(slots)) t.dispose();
+      model.traverse((o) => { if (o.isSkinnedMesh) o.skeleton.dispose(); });
+    },
+  };
+}
+
+// ------------------------------------------------------------ procedural costume
+function proceduralRig(name, color, { number = 1, runner = '' } = {}) {
   const sp = SPECIES[name] || SPECIES.trex;
   const pal = palette(color);
   const nrm = T.fabricNormalTexture();
@@ -667,7 +805,6 @@ export function buildDino(name, color, { number = 1, runner = '' } = {}) {
   const skin = SKIN[number % SKIN.length];
   const hair = HAIR[number % HAIR.length];
   const faceMat = new THREE.MeshStandardMaterial({ map: T.humanFace('happy', skin, hair), roughness: 0.8 });
-  const faceTextures = ['happy', 'hot', 'dizzy'].map((m) => T.humanFace(m, skin, hair));
   const hitW = cast(V(0.003, 1.6, -0.2), V(0, 0, 1)); // off x=0: that's a vertex seam
   if (hitW) {
     const win = mount(0.66, hitW);
@@ -790,34 +927,6 @@ export function buildDino(name, color, { number = 1, runner = '' } = {}) {
   const sneakerMat = cached(`sneaker-${number % SNEAKERS.length}`, () => new THREE.MeshStandardMaterial({ map: T.sneakerTexture(SNEAKERS[number % SNEAKERS.length]), roughness: 0.55 }));
   const legs = [buildLeg(pivot, -1, mats, sneakerMat), buildLeg(pivot, 1, mats, sneakerMat)];
 
-  // ---- status visuals (never baked)
-  const fxGroup = new THREE.Group();
-  fxGroup.userData.dyn = true;
-  root.add(fxGroup);
-  const stars = new THREE.Group();
-  const starMat = new THREE.SpriteMaterial({ map: T.starTexture(), depthWrite: false });
-  for (let i = 0; i < 5; i++) { const s = new THREE.Sprite(starMat); s.scale.setScalar(0.22); stars.add(s); }
-  stars.visible = false;
-  stars.userData.keep = true;
-  fxGroup.add(stars);
-  const shield = new THREE.Mesh(SPHERE(), bubbleMaterial('#ffb020'));
-  shield.scale.set(1.3, 1.65, 1.6); shield.position.y = 1.4; shield.visible = false; shield.renderOrder = 5;
-  shield.userData.keep = true;
-  fxGroup.add(shield);
-  const spikes = new THREE.Group();
-  const spikeMat = new THREE.MeshStandardMaterial({ color: '#ff5a2a', emissive: '#ff3a00', emissiveIntensity: 0.6, roughness: 0.3 });
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const c = new THREE.Mesh(CONE(), spikeMat);
-    c.scale.set(0.07, 0.4, 0.07);
-    c.position.set(Math.cos(a) * 0.95, 1.4 + Math.sin(i * 1.7) * 0.35, Math.sin(a) * 0.95);
-    aim(c, V(Math.cos(a), Math.sin(i * 1.7) * 0.4, Math.sin(a)));
-    spikes.add(c);
-  }
-  spikes.visible = false;
-  spikes.userData.keep = true;
-  fxGroup.add(spikes);
-
   // merge static parts per joint/bone
   const joints = [];
   root.traverse((o) => { if (o.userData.dyn || o.isBone) joints.push(o); });
@@ -834,10 +943,117 @@ export function buildDino(name, color, { number = 1, runner = '' } = {}) {
     if (o.geometry.boundingSphere.radius * Math.max(sc.x, sc.y, sc.z) < 0.14) o.castShadow = false;
   });
 
-  const state = { tripT: 0, deflate: 0, bubble: null, tag: null, tagKey: '', faceMood: 'happy', roll: 0, blink: 2 + Math.random() * 4 };
-  const tailBones = bones.slice(0, rootIdx).reverse();
-  const neckBones = bones.slice(rootIdx + 1);
-  const hotMats = [mats.fabric, mats.solid];
+  return {
+    hd: false, root, pivot, torso, legs, arms, eyes, jaw, fan,
+    tailBones: bones.slice(0, rootIdx).reverse(), neckBones: bones.slice(rootIdx + 1),
+    hotMats: [mats.fabric, mats.solid], faceMat, face: { skin, hair }, lidRest: 0,
+    dispose() {
+      root.traverse((o) => { if (o.isMesh && !shared.has(o.geometry)) o.geometry.dispose(); });
+      for (const m of Object.values(mats)) if (m?.isMaterial) m.dispose();
+      faceMat.dispose();
+      bibMat.map.dispose(); bibMat.dispose();
+      body.skeleton.dispose();
+    },
+  };
+}
+
+// ------------------------------------------------------------ held items
+// The Water Blaster and Squeaky Mallet appear in the runner's hands while in
+// use. Blender models when loaded (props 'blaster', 'mallet'), else simple
+// shapes. Shared by every runner, so they are made once.
+const heldCache = new Map();
+function heldParts(kind) {
+  const key = `${kind}|${Assets.get('props', kind) ? 'hd' : 'classic'}`;
+  if (heldCache.has(key)) return heldCache.get(key);
+  const hd = Assets.withMeshes('props', kind, [kind]);
+  let parts;
+  if (hd) {
+    parts = [[Assets.geometry(hd, kind), Assets.material(hd, kind === 'blaster' ? { physical: true, clearcoat: 0.8 } : { physical: true, clearcoat: 0.5, sheen: 0.5 })]];
+  } else if (kind === 'blaster') {
+    const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.35, ...extra });
+    const body = new THREE.BoxGeometry(0.14, 0.16, 0.5); body.translate(0, 0.02, 0.12);
+    const tank = new THREE.CylinderGeometry(0.09, 0.09, 0.3, 16); tank.rotateX(Math.PI / 2); tank.translate(0, 0.16, 0.05);
+    const barrel = new THREE.CylinderGeometry(0.03, 0.035, 0.24, 12); barrel.rotateX(Math.PI / 2); barrel.translate(0, 0.04, 0.46);
+    const grip = new THREE.BoxGeometry(0.08, 0.18, 0.1); grip.translate(0, -0.1, -0.02);
+    parts = [[body, std('#ff8a1f')], [grip, std('#ff8a1f')], [tank, std('#6fc6ff', { transparent: true, opacity: 0.75 })], [barrel, std('#ffd84a')]];
+  } else {
+    const handle = new THREE.CylinderGeometry(0.035, 0.04, 1.0, 12); handle.translate(0, 0.5, 0);
+    const head = new THREE.CapsuleGeometry(0.2, 0.34, 6, 16); head.rotateZ(Math.PI / 2); head.translate(0, 1.05, 0);
+    parts = [[handle, new THREE.MeshStandardMaterial({ color: '#2f80ed', roughness: 0.4 })], [head, new THREE.MeshPhysicalMaterial({ color: '#e5484d', roughness: 0.35, clearcoat: 0.6 })]];
+  }
+  heldCache.set(key, parts);
+  return parts;
+}
+
+function heldItem(kind) {
+  const g = new THREE.Group();
+  for (const [geom, mat] of heldParts(kind)) {
+    const m = new THREE.Mesh(geom, mat);
+    m.castShadow = kind === 'mallet';
+    g.add(m);
+  }
+  g.visible = false;
+  return g;
+}
+
+// half-width of the costume at the chest, so held items sit just outside it
+const chestWidth = (name) => Math.max(...(SPECIES[name] || SPECIES.trex).prof.map((p) => p[1])) + 0.06;
+
+// ------------------------------------------------------------ runner
+// Animation, status effects, name tag and taunt bubble on top of either rig.
+function makeRunner(rig, name, number) {
+  const { root, pivot, torso, legs, arms, eyes, jaw, fan, tailBones, neckBones, hotMats, faceMat } = rig;
+  const { skin, hair } = rig.face;
+  const faceTextures = ['happy', 'hot', 'dizzy'].map((m) => T.humanFace(m, skin, hair));
+
+  // held items, carried on the runner's right (+x) at chest height
+  const blaster = heldItem('blaster');
+  blaster.position.set(chestWidth(name), 0.38, 0.28);
+  const mallet = heldItem('mallet');
+  mallet.position.set(chestWidth(name) + 0.05, 0.25, 0.2);
+  torso.add(blaster, mallet);
+  const MUZZLE = new THREE.Vector3(0, 0.05, 0.6);
+
+  // ---- status visuals
+  const fxGroup = new THREE.Group();
+  root.add(fxGroup);
+  const stars = new THREE.Group();
+  const starMat = new THREE.SpriteMaterial({ map: T.starTexture(), depthWrite: false });
+  for (let i = 0; i < 5; i++) { const s = new THREE.Sprite(starMat); s.scale.setScalar(0.22); stars.add(s); }
+  stars.visible = false;
+  fxGroup.add(stars);
+  const shield = new THREE.Mesh(SPHERE(), bubbleMaterial('#ffb020'));
+  shield.scale.set(1.3, 1.65, 1.6); shield.position.y = 1.4; shield.visible = false; shield.renderOrder = 5;
+  fxGroup.add(shield);
+  const spikes = new THREE.Group();
+  const spikeMat = new THREE.MeshStandardMaterial({ color: '#ff5a2a', emissive: '#ff3a00', emissiveIntensity: 0.6, roughness: 0.3 });
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const c = new THREE.Mesh(CONE(), spikeMat);
+    c.scale.set(0.07, 0.4, 0.07);
+    c.position.set(Math.cos(a) * 0.95, 1.4 + Math.sin(i * 1.7) * 0.35, Math.sin(a) * 0.95);
+    aim(c, V(Math.cos(a), Math.sin(i * 1.7) * 0.4, Math.sin(a)));
+    spikes.add(c);
+  }
+  spikes.visible = false;
+  fxGroup.add(spikes);
+
+  const state = { tripT: 0, deflate: 0, bubble: null, tag: null, tagKey: '', faceMood: 'happy', roll: 0, blink: 2 + Math.random() * 4, swingT: 0, wet: 0 };
+
+  // A soaked costume looks darker and glossy, then dries off over a second or two.
+  function setWet(w) {
+    for (const m of hotMats) {
+      const dry = (m.userData.dry ||= { color: m.color.clone(), roughness: m.roughness, clearcoat: m.clearcoat ?? 0 });
+      m.color.copy(dry.color).multiplyScalar(1 - 0.3 * w);
+      m.roughness = dry.roughness * (1 - 0.6 * w);
+      if (m.clearcoat !== undefined) m.clearcoat = dry.clearcoat + (1 - dry.clearcoat) * 0.7 * w;
+    }
+  }
+
+  // World position of the Water Blaster's nozzle (for the jet).
+  function muzzle(out = new THREE.Vector3()) {
+    return blaster.visible ? blaster.localToWorld(out.copy(MUZZLE)) : null;
+  }
 
   function showTag(on) { if (state.tag) state.tag.visible = on; }
 
@@ -846,6 +1062,7 @@ export function buildDino(name, color, { number = 1, runner = '' } = {}) {
   function prewarm(on) {
     bubble(on);
     stars.visible = on; shield.visible = on; spikes.visible = on;
+    blaster.visible = on; mallet.visible = on;
     return [...faceTextures, ...[...tagCache.values()].map((v) => v.tx), state.bubble?.material.map].filter(Boolean);
   }
 
@@ -950,7 +1167,8 @@ export function buildDino(name, color, { number = 1, runner = '' } = {}) {
     state.blink -= dt;
     const shut = state.blink < 0.12 || tripped;
     if (state.blink < 0) state.blink = 2.5 + Math.random() * 4;
-    for (const e of eyes) e.lid.rotation.x = lerp(e.lid.rotation.x, shut ? LID_SHUT : LID_OPEN, Math.min(1, dt * 30));
+    const lid = (shut ? LID_SHUT : LID_OPEN) - rig.lidRest;
+    for (const e of eyes) e.lid.rotation.x = lerp(e.lid.rotation.x, lid, Math.min(1, dt * 30));
 
     arms.forEach((arm, i) => {
       const p = ph + (i ? 0 : Math.PI);
@@ -982,21 +1200,37 @@ export function buildDino(name, color, { number = 1, runner = '' } = {}) {
     spikes.visible = !!(fx & FX.spikes);
     if (spikes.visible) spikes.rotation.y = t * 2;
     bubble(!!s.taunt);
+
+    // Water Blaster: held out front, juddering with the jet
+    blaster.visible = !!(fx & FX.spray);
+    if (blaster.visible) blaster.rotation.set(-0.08 + Math.sin(t * 40) * 0.02, -0.12, Math.sin(t * 33) * 0.02);
+    // Squeaky Mallet: wind up over the shoulder, then smash down on the beat
+    // the server lands the bonk (WEAPONS.swingHit of WEAPONS.swing)
+    mallet.visible = !!(fx & FX.swing);
+    state.swingT = mallet.visible ? state.swingT + dt : 0;
+    if (mallet.visible) {
+      const k = state.swingT / WEAPONS.swing;
+      const hit = WEAPONS.swingHit / WEAPONS.swing;
+      mallet.rotation.x = k < hit - 0.1 ? lerp(-0.2, -1.5, k / (hit - 0.1))
+        : k < hit + 0.05 ? lerp(-1.5, 1.7, (k - hit + 0.1) / 0.15) : 1.7 - (k - hit - 0.05) * 1.2;
+      mallet.rotation.z = -0.35;
+    }
+    // soaked: darker, glossy fabric that dries off slowly
+    const wet = fx & FX.soaked ? 1 : 0;
+    const w = lerp(state.wet, wet, Math.min(1, dt * (wet ? 8 : 0.7)));
+    if (Math.abs(w - state.wet) > 0.002 || (w === 0 && state.wet !== 0)) setWet(w < 0.005 ? 0 : w);
+    state.wet = w < 0.005 ? 0 : w;
   }
 
   function dispose() {
-    root.traverse((o) => {
-      if (o.isMesh && !shared.has(o.geometry)) o.geometry.dispose();
+    fxGroup.traverse((o) => {
       if (o.isSprite && o.material.map !== starMat.map && o !== state.tag) o.material.map?.dispose();
     });
     for (const { tx } of tagCache.values()) tx.dispose();
-    for (const m of Object.values(mats)) if (m?.isMaterial) m.dispose();
-    faceMat.dispose();
-    bibMat.map.dispose(); bibMat.dispose();
-    body.skeleton.dispose();
+    rig.dispose();
   }
 
-  return { root, update, setTag, showTag, prewarm, dispose, name };
+  return { root, update, setTag, showTag, prewarm, dispose, muzzle, name, hd: rig.hd };
 }
 
 export function bubbleMaterial(color) {

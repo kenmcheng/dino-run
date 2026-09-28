@@ -17,6 +17,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.ico': 'image/x-icon', '.json': 'application/json',
+  '.glb': 'model/gltf-binary', '.webp': 'image/webp', '.wasm': 'application/wasm',
 };
 
 // Only /public/*, /shared/* and the three.js package (as /vendor/three/*) are reachable.

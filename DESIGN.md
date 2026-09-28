@@ -74,8 +74,10 @@ Roughly in the order I'd build them.
   their up/down controls for 3 s.
 - **Air Pump**: inflates your costume to double size. You're slower, but you
   shove everyone aside and are immune to peels.
-- **Nest**: drop a nest that hatches three tiny raptors, which chase the
-  nearest runner.
+- ~~**Nest**~~ done as **Raptor Hatchlings**, alongside the Water Blaster,
+  Squeaky Mallet and Water Balloon. The "soaked" status (slower, but cooler)
+  opens up more water ideas: a **Sprinkler** hazard that soaks a whole lane, or
+  a **Towel** that dries you instantly.
 - **Cheer Horn**: spectators' cheers become a small boost for everyone near you
   (and you get the biggest share).
 - **Fossil Fuel**: a very long, weak boost. Great on the marathon course.
@@ -112,7 +114,7 @@ Roughly in the order I'd build them.
 | 4 | Leaderboards (Postgres): best times per course and costume | replayability |
 | 5 | Relay mode (team state, baton handoff) | the signature mode from the real event |
 | 6 | Spectator clients with a cheer meter | party and stream play |
-| 7 | Art pass: glTF costume models from an artist (the rig joint names in `dino3d.js` are the contract), music, per-course ambience | polish |
+| 7 | Art pass: ~~glTF costumes, items and scenery~~ done: built and baked in Blender by `art/` (the rig contract is in `art/README.md`), with the procedural models as fallback. Still to do: the stadium crowd, the water stations, music, per-course ambience | polish |
 | 8 | Real terrain: a heightfield that follows the track instead of the flat ground plus embankments | immersion |
 
 ## Tuning notes

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Race, DT } from '../server/race.js';
-import { DINOS, buildCourse, COURSES } from '../shared/data.js';
+import { DINOS, ITEMS, buildCourse, COURSES, itemWeights } from '../shared/data.js';
 
 function rng(seed = 1) {
   let a = seed;
@@ -237,6 +237,94 @@ test('a jump timed to peak over the hurdle earns a hop boost', () => {
   const hops = race.drainEvents().filter((e) => e.k === 'hop').map((e) => e.id);
   assert.deepEqual(hops, ['a']);
   assert.ok(a.fx.boost > 0);
+});
+
+// A race with runners placed by hand and no cooldowns firing.
+function setup(...placed) {
+  const race = new Race('sprint', placed.map(([id], i) => human(id, placed[i][3] || 'trex')), { countdown: 0 });
+  race.runners.forEach((r, i) => { [, r.x, r.y] = placed[i]; r.cd = 99; r.v = 8; });
+  return race;
+}
+
+test('water blaster soaks the first runner in the jet, and only them', () => {
+  const race = setup(['a', 20, 3], ['b', 24, 3], ['c', 28, 3], ['d', 24, 5.5]);
+  const [a, b, c, d] = race.runners;
+  b.heat = 3;
+  a.item = 'blaster';
+  race.queueAction('a', 'item');
+  steps(race, 0.5);
+  assert.ok(a.fx.spray > 0, 'still spraying');
+  assert.ok(b.fx.soaked > 0, 'runner in the jet is soaked');
+  assert.equal(c.fx.soaked, 0, 'the runner behind them is shielded by them');
+  assert.equal(d.fx.soaked, 0, 'a runner off the line stays dry');
+  assert.ok(b.heat < 3, 'the water cools the soaked costume');
+  const soaks = race.drainEvents().filter((e) => e.k === 'soak');
+  assert.deepEqual(soaks.map((e) => [e.id, e.by]), [['b', 'a']], 'announced once');
+  steps(race, 0.6);
+  assert.ok(b.v < DINOS.trex.top * 0.85, 'wet foam is heavy');
+});
+
+test('squeaky mallet lands at the end of the swing, on runners in reach', () => {
+  const race = setup(['a', 20, 3], ['b', 21.5, 3.8], ['far', 30, 3]);
+  const [a, b, far] = race.runners;
+  a.item = 'mallet';
+  race.queueAction('a', 'item');
+  race.step();
+  assert.equal(b.fx.trip, 0, 'not instant: the hammer is still winding up');
+  assert.ok(a.fx.swing > 0);
+  steps(race, 0.3);
+  assert.ok(b.fx.trip > 0, 'bonked');
+  assert.equal(far.fx.trip, 0);
+  assert.ok(race.drainEvents().some((e) => e.k === 'hit' && e.id === 'b' && e.cause === 'mallet'));
+});
+
+test('water balloon splashes the runner ahead; sidestepping after it commits dodges', () => {
+  const race = setup(['a', 20, 3], ['b', 32, 3]);
+  const [a, b] = race.runners;
+  a.item = 'balloon';
+  race.queueAction('a', 'item');
+  steps(race, 1.1);
+  assert.ok(b.fx.soaked > 0 && b.fx.stumble > 0, 'splashed');
+  assert.ok(race.drainEvents().some((e) => e.k === 'splash'));
+
+  const dodge = setup(['a', 20, 3], ['b', 32, 3]);
+  const [a2, b2] = dodge.runners;
+  a2.item = 'balloon';
+  dodge.queueAction('a', 'item');
+  steps(dodge, 0.6);            // past the halfway commit point
+  b2.y = 5.6;                    // dive for the outside lane
+  steps(dodge, 0.5);
+  assert.equal(b2.fx.soaked, 0, 'dodged');
+});
+
+test('raptor hatchlings chase down the runner ahead; jumping them works', () => {
+  const race = setup(['a', 20, 3], ['b', 28, 3.6]);
+  const [a, b] = race.runners;
+  a.item = 'hatch';
+  race.queueAction('a', 'item');
+  race.step();
+  assert.equal(race.projectiles.filter((p) => p.type === 'hatch').length, 3);
+  steps(race, 3);
+  assert.ok(race.drainEvents().some((e) => e.k === 'hit' && e.id === 'b' && e.cause === 'hatch'));
+
+  const hop = setup(['a', 20, 3], ['b', 22, 3]);
+  const [ha, hb] = hop.runners;
+  ha.item = 'hatch';
+  hop.queueAction('a', 'item');
+  hop.step();
+  hb.z = 1; hb.vz = 3;           // mid-jump as they run underneath
+  steps(hop, 0.25);
+  assert.equal(hb.fx.trip, 0, 'they scurry underneath a jumper');
+});
+
+test('every place in the field can roll the new items', () => {
+  for (const frac of [0, 0.5, 1]) {
+    const w = itemWeights(frac);
+    for (const k of Object.keys(w)) assert.ok(ITEMS[k], `${k} is a real item`);
+    assert.ok(w.mallet > 0 && w.blaster > 0 && w.balloon > 0);
+  }
+  assert.equal(itemWeights(0).hatch, 0, 'the leader never gets hatchlings');
+  assert.ok(itemWeights(1).hatch > 0);
 });
 
 test('tucking in behind a runner gives a slipstream', () => {

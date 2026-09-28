@@ -1,0 +1,483 @@
+{
+  "costumes": {
+    "ankylo": {
+      "bones": 23,
+      "file": "costumes/ankylo.glb",
+      "textures": {
+        "fabric": {
+          "mask": "ankylo_fabric_mask.webp",
+          "normal": "ankylo_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "ankylo_trim_color.webp",
+          "normal": "ankylo_trim_normal.webp",
+          "orm": "ankylo_trim_orm.webp"
+        }
+      },
+      "tris": 24638
+    },
+    "pachy": {
+      "bones": 24,
+      "file": "costumes/pachy.glb",
+      "textures": {
+        "fabric": {
+          "mask": "pachy_fabric_mask.webp",
+          "normal": "pachy_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "pachy_trim_color.webp",
+          "normal": "pachy_trim_normal.webp",
+          "orm": "pachy_trim_orm.webp"
+        }
+      },
+      "tris": 22978
+    },
+    "parasaur": {
+      "bones": 24,
+      "file": "costumes/parasaur.glb",
+      "textures": {
+        "fabric": {
+          "mask": "parasaur_fabric_mask.webp",
+          "normal": "parasaur_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "parasaur_trim_color.webp",
+          "normal": "parasaur_trim_normal.webp",
+          "orm": "parasaur_trim_orm.webp"
+        }
+      },
+      "tris": 21978
+    },
+    "ptera": {
+      "bones": 24,
+      "file": "costumes/ptera.glb",
+      "textures": {
+        "fabric": {
+          "mask": "ptera_fabric_mask.webp",
+          "normal": "ptera_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "ptera_trim_color.webp",
+          "normal": "ptera_trim_normal.webp",
+          "orm": "ptera_trim_orm.webp"
+        }
+      },
+      "tris": 20499
+    },
+    "raptor": {
+      "bones": 24,
+      "file": "costumes/raptor.glb",
+      "textures": {
+        "fabric": {
+          "mask": "raptor_fabric_mask.webp",
+          "normal": "raptor_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "raptor_trim_color.webp",
+          "normal": "raptor_trim_normal.webp",
+          "orm": "raptor_trim_orm.webp"
+        }
+      },
+      "tris": 23566
+    },
+    "stego": {
+      "bones": 23,
+      "file": "costumes/stego.glb",
+      "textures": {
+        "fabric": {
+          "mask": "stego_fabric_mask.webp",
+          "normal": "stego_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "stego_trim_color.webp",
+          "normal": "stego_trim_normal.webp",
+          "orm": "stego_trim_orm.webp"
+        }
+      },
+      "tris": 21799
+    },
+    "trex": {
+      "bones": 24,
+      "file": "costumes/trex.glb",
+      "textures": {
+        "fabric": {
+          "mask": "trex_fabric_mask.webp",
+          "normal": "trex_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "trex_trim_color.webp",
+          "normal": "trex_trim_normal.webp",
+          "orm": "trex_trim_orm.webp"
+        }
+      },
+      "tris": 21751
+    },
+    "trike": {
+      "bones": 23,
+      "file": "costumes/trike.glb",
+      "textures": {
+        "fabric": {
+          "mask": "trike_fabric_mask.webp",
+          "normal": "trike_fabric_normal.webp"
+        },
+        "trim": {
+          "color": "trike_trim_color.webp",
+          "normal": "trike_trim_normal.webp",
+          "orm": "trike_trim_orm.webp"
+        }
+      },
+      "tris": 21797
+    }
+  },
+  "props": {
+    "arch": {
+      "file": "props/arch.glb",
+      "meshes": {
+        "arch": 2516
+      },
+      "textures": {
+        "pbr": {
+          "color": "arch_color.webp",
+          "normal": "arch_normal.webp",
+          "orm": "arch_orm.webp"
+        }
+      },
+      "tris": 2516
+    },
+    "balloon": {
+      "file": "props/balloon.glb",
+      "meshes": {
+        "balloon": 360
+      },
+      "textures": {
+        "pbr": {
+          "color": "balloon_color.webp",
+          "normal": "balloon_normal.webp",
+          "orm": "balloon_orm.webp"
+        }
+      },
+      "tris": 360
+    },
+    "blaster": {
+      "file": "props/blaster.glb",
+      "meshes": {
+        "blaster": 960
+      },
+      "textures": {
+        "pbr": {
+          "color": "blaster_color.webp",
+          "normal": "blaster_normal.webp",
+          "orm": "blaster_orm.webp"
+        }
+      },
+      "tris": 960
+    },
+    "bomb": {
+      "file": "props/bomb.glb",
+      "meshes": {
+        "bomb": 759
+      },
+      "textures": {
+        "pbr": {
+          "color": "bomb_color.webp",
+          "emit": "bomb_emit.webp",
+          "normal": "bomb_normal.webp",
+          "orm": "bomb_orm.webp"
+        }
+      },
+      "tris": 759
+    },
+    "bone_hurdle": {
+      "file": "props/bone_hurdle.glb",
+      "meshes": {
+        "bone": 1902,
+        "stand": 400
+      },
+      "textures": {
+        "pbr": {
+          "color": "bone_hurdle_color.webp",
+          "normal": "bone_hurdle_normal.webp",
+          "orm": "bone_hurdle_orm.webp"
+        }
+      },
+      "tris": 2302
+    },
+    "egg": {
+      "file": "props/egg.glb",
+      "meshes": {
+        "egg": 896
+      },
+      "textures": {
+        "pbr": {
+          "color": "egg_color.webp",
+          "normal": "egg_normal.webp",
+          "orm": "egg_orm.webp"
+        }
+      },
+      "tris": 896
+    },
+    "hatchling": {
+      "file": "props/hatchling.glb",
+      "meshes": {
+        "hatchling": 850
+      },
+      "textures": {
+        "pbr": {
+          "color": "hatchling_color.webp",
+          "normal": "hatchling_normal.webp",
+          "orm": "hatchling_orm.webp"
+        }
+      },
+      "tris": 850
+    },
+    "log_hurdle": {
+      "file": "props/log_hurdle.glb",
+      "meshes": {
+        "log": 216
+      },
+      "textures": {
+        "pbr": {
+          "color": "log_hurdle_color.webp",
+          "normal": "log_hurdle_normal.webp",
+          "orm": "log_hurdle_orm.webp"
+        }
+      },
+      "tris": 216
+    },
+    "mallet": {
+      "file": "props/mallet.glb",
+      "meshes": {
+        "mallet": 940
+      },
+      "textures": {
+        "pbr": {
+          "color": "mallet_color.webp",
+          "normal": "mallet_normal.webp",
+          "orm": "mallet_orm.webp"
+        }
+      },
+      "tris": 940
+    },
+    "meteor": {
+      "file": "props/meteor.glb",
+      "meshes": {
+        "meteor": 1520
+      },
+      "textures": {
+        "pbr": {
+          "color": "meteor_color.webp",
+          "emit": "meteor_emit.webp",
+          "normal": "meteor_normal.webp",
+          "orm": "meteor_orm.webp"
+        }
+      },
+      "tris": 1520
+    },
+    "nest": {
+      "file": "props/nest.glb",
+      "meshes": {
+        "nest": 720
+      },
+      "textures": {
+        "pbr": {
+          "color": "nest_color.webp",
+          "normal": "nest_normal.webp",
+          "orm": "nest_orm.webp"
+        }
+      },
+      "tris": 720
+    },
+    "peel": {
+      "file": "props/peel.glb",
+      "meshes": {
+        "peel": 150
+      },
+      "textures": {
+        "pbr": {
+          "color": "peel_color.webp",
+          "normal": "peel_normal.webp",
+          "orm": "peel_orm.webp"
+        }
+      },
+      "tris": 150
+    },
+    "tar": {
+      "file": "props/tar.glb",
+      "meshes": {
+        "tar": 699
+      },
+      "textures": {
+        "pbr": {
+          "color": "tar_color.webp",
+          "normal": "tar_normal.webp",
+          "orm": "tar_orm.webp"
+        }
+      },
+      "tris": 699
+    }
+  },
+  "scenery": {
+    "boulder": {
+      "file": "scenery/boulder.glb",
+      "meshes": {
+        "boulder": 180
+      },
+      "textures": {
+        "pbr": {
+          "color": "boulder_color.webp",
+          "normal": "boulder_normal.webp",
+          "orm": "boulder_orm.webp"
+        }
+      },
+      "tris": 180
+    },
+    "dead_tree": {
+      "file": "scenery/dead_tree.glb",
+      "meshes": {
+        "dead_tree": 180
+      },
+      "textures": {
+        "pbr": {
+          "color": "dead_tree_color.webp",
+          "emit": "dead_tree_emit.webp",
+          "normal": "dead_tree_normal.webp",
+          "orm": "dead_tree_orm.webp"
+        }
+      },
+      "tris": 180
+    },
+    "fern": {
+      "file": "scenery/fern.glb",
+      "meshes": {
+        "fern": 112
+      },
+      "textures": {
+        "pbr": {
+          "color": "fern_color.webp",
+          "normal": "fern_normal.webp",
+          "orm": "fern_orm.webp"
+        }
+      },
+      "tris": 112
+    },
+    "floodlight": {
+      "file": "scenery/floodlight.glb",
+      "meshes": {
+        "tower": 4184
+      },
+      "textures": {
+        "pbr": {
+          "color": "floodlight_color.webp",
+          "emit": "floodlight_emit.webp",
+          "normal": "floodlight_normal.webp",
+          "orm": "floodlight_orm.webp"
+        }
+      },
+      "tris": 4184
+    },
+    "flower": {
+      "file": "scenery/flower.glb",
+      "meshes": {
+        "bloom": 190,
+        "stem": 90
+      },
+      "textures": {
+        "pbr": {
+          "color": "flower_color.webp",
+          "emit": "flower_emit.webp",
+          "normal": "flower_normal.webp",
+          "orm": "flower_orm.webp"
+        }
+      },
+      "tris": 280
+    },
+    "jungle_tree": {
+      "file": "scenery/jungle_tree.glb",
+      "meshes": {
+        "canopy": 260,
+        "trunk": 120
+      },
+      "textures": {
+        "pbr": {
+          "color": "jungle_tree_color.webp",
+          "normal": "jungle_tree_normal.webp",
+          "orm": "jungle_tree_orm.webp"
+        }
+      },
+      "tris": 380
+    },
+    "palm": {
+      "file": "scenery/palm.glb",
+      "meshes": {
+        "fronds": 192,
+        "trunk": 262
+      },
+      "textures": {
+        "pbr": {
+          "color": "palm_color.webp",
+          "normal": "palm_normal.webp",
+          "orm": "palm_orm.webp"
+        }
+      },
+      "tris": 454
+    },
+    "rib": {
+      "file": "scenery/rib.glb",
+      "meshes": {
+        "rib": 640
+      },
+      "textures": {
+        "pbr": {
+          "color": "rib_color.webp",
+          "normal": "rib_normal.webp",
+          "orm": "rib_orm.webp"
+        }
+      },
+      "tris": 640
+    },
+    "skull": {
+      "file": "scenery/skull.glb",
+      "meshes": {
+        "skull": 1600
+      },
+      "textures": {
+        "pbr": {
+          "color": "skull_color.webp",
+          "emit": "skull_emit.webp",
+          "normal": "skull_normal.webp",
+          "orm": "skull_orm.webp"
+        }
+      },
+      "tris": 1600
+    },
+    "spire": {
+      "file": "scenery/spire.glb",
+      "meshes": {
+        "spire": 144
+      },
+      "textures": {
+        "pbr": {
+          "color": "spire_color.webp",
+          "normal": "spire_normal.webp",
+          "orm": "spire_orm.webp"
+        }
+      },
+      "tris": 144
+    },
+    "vertebra": {
+      "file": "scenery/vertebra.glb",
+      "meshes": {
+        "vertebra": 300
+      },
+      "textures": {
+        "pbr": {
+          "color": "vertebra_color.webp",
+          "normal": "vertebra_normal.webp",
+          "orm": "vertebra_orm.webp"
+        }
+      },
+      "tris": 300
+    }
+  },
+  "version": 1
+}
