@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createPerf, nextTier, TIERS } from '../public/js/three/quality.js';
+import { capInterval, createPerf, nextTier, TIERS } from '../public/js/three/quality.js';
 
 // The original one-way-downgrade algorithm from game3d.js, kept here only as
 // a reference to prove the new state machine drops at the same rate.
@@ -32,6 +32,24 @@ function runFor(perf, tier, dt, seconds) {
     tier = next;
   }
   return { tier, elapsed: null };
+}
+
+function simulate(dtFor, seconds, tier = 'high') {
+  const perf = createPerf();
+  const changes = [];
+  let t = 0;
+  let frameIndex = 0;
+  while (t < seconds) {
+    const dt = dtFor(tier, frameIndex);
+    const next = nextTier(perf, tier, dt);
+    t += dt;
+    frameIndex++;
+    if (next !== tier) {
+      tier = next;
+      changes.push({ t, tier });
+    }
+  }
+  return { perf, tier, changes };
 }
 
 test('downgrade responsiveness is unchanged from the pre-existing algorithm', () => {
@@ -152,4 +170,93 @@ test('a single slow spike restarts an in-progress fast streak', () => {
 
   const after = runFor(perf, tier, 1 / 60, 9);
   assert.equal(after.tier, 'medium', 'the reset streak should not reach 10s again after only 9 more seconds');
+});
+
+test('a 30 Hz cap on a fast GPU is probed, undone, and then ignored for five minutes', () => {
+  const { perf, tier, changes } = simulate(() => 1 / 30, 420);
+  assert.equal(tier, 'high');
+  assert.deepEqual(changes.map(change => change.tier), ['medium', 'high']);
+  assert.ok(changes[1].t <= 7, `High returned too late at ${changes[1].t}s`);
+  assert.ok(changes.every(change => change.tier === 'medium' || change.tier === 'high'));
+  assert.equal(perf.drops.high, undefined);
+  assert.ok(Math.abs(perf.capped - 1 / 30) < 0.00001);
+});
+
+test('jittery 30 Hz and steady 24 Hz caps recover to high, while a jittery 40 Hz cap stays high', () => {
+  const jittery30 = simulate((tier, frame) => frame % 2 ? 0.0367 : 0.030, 120);
+  assert.equal(jittery30.tier, 'high');
+  assert.ok(jittery30.changes.length <= 2);
+
+  const cap24 = simulate(() => 1 / 24, 120);
+  assert.equal(cap24.tier, 'high');
+
+  const cap40 = simulate((tier, frame) => frame % 2 ? 0.0265 : 0.0235, 120);
+  assert.equal(cap40.tier, 'high');
+  assert.equal(cap40.changes.length, 0);
+});
+
+test('a tier-switch hitch is excluded from the cap probe', () => {
+  let mediumHitchPending = true;
+  const { perf, tier } = simulate((currentTier) => {
+    if (currentTier === 'medium' && mediumHitchPending) {
+      mediumHitchPending = false;
+      return 0.25;
+    }
+    return 1 / 30;
+  }, 120);
+  assert.equal(tier, 'high');
+  assert.ok(Math.abs(perf.capped - 1 / 30) < 0.00001);
+});
+
+test('after learning a cap, genuinely slow frames still cause a counted downgrade', () => {
+  const switchFrame = 250;
+  const { perf, changes } = simulate((tier, frame) => frame < switchFrame ? 1 / 30 : 1 / 20, 30);
+  const switchTime = switchFrame / 30;
+  assert.equal(perf.capped, 1 / 30);
+  assert.equal(changes[0].tier, 'medium');
+  assert.equal(changes[1].tier, 'high');
+  assert.equal(changes[2].tier, 'medium');
+  assert.ok(changes[2].t - switchTime < 3.5, `slow frames took too long to downgrade: ${changes[2].t - switchTime}s`);
+  assert.equal(perf.drops.high, 1);
+});
+
+test('a 30 Hz interval that improves at medium confirms real load instead of capping', () => {
+  const { perf, tier, changes } = simulate(currentTier => currentTier === 'high' ? 1 / 30 : 1 / 60, 11.5);
+  assert.equal(changes[0].tier, 'medium');
+  assert.equal(tier, 'medium');
+  assert.equal(perf.drops.high, 1);
+  assert.equal(perf.capped, 0);
+});
+
+test('a non-cap slow interval still walks down at the original frames', () => {
+  const oldPerf = { ema: 1 / 60, slowFor: 0 };
+  const perf = createPerf();
+  let oldTier = 'high';
+  let tier = 'high';
+  const oldChanges = [];
+  const changes = [];
+  const dt = 1 / 20;
+
+  for (let frame = 0; frame < 2000; frame++) {
+    const oldNext = oldNextTier(oldPerf, oldTier, dt);
+    const next = nextTier(perf, tier, dt);
+    if (oldNext !== oldTier) {
+      oldTier = oldNext;
+      oldChanges.push({ tier: oldTier, frame });
+    }
+    if (next !== tier) {
+      tier = next;
+      changes.push({ tier, frame });
+    }
+  }
+
+  assert.deepEqual(changes, oldChanges);
+  assert.deepEqual(changes.map(change => change.tier), ['medium', 'low', 'lowest']);
+});
+
+test('capInterval matches common caps within tolerance', () => {
+  assert.equal(capInterval(1 / 30), 1 / 30);
+  assert.equal(capInterval(0.0345), 1 / 30);
+  assert.equal(capInterval(1 / 20), 0);
+  assert.equal(capInterval(1 / 45), 0);
 });

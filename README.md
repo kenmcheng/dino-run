@@ -179,6 +179,8 @@ public/js/three/
   A toast announces every effective change, and the Auto option's label shows
   the current effective tier when it isn't High. Add `?hq` to the URL to pin
   High.
+  If a drop doesn't raise the frame rate (for example, a browser or battery
+  saver capping at 30 fps), Auto undoes it and stops lowering for that cap.
   - A stadium frame at High is about 600 draw calls and 825k triangles,
     shadow pass included.
   - Small parts don't cast shadows.
