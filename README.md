@@ -1,5 +1,7 @@
 # Dino Run 🦖💨
 
+[![CI](https://github.com/kenmcheng/dino-run/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kenmcheng/dino-run/actions/workflows/ci.yml)
+
 A multiplayer 3D browser racing game. Everyone runs in an inflatable dinosaur
 costume, and the race plays like Mario Kart: a chase camera, looping
 circuits, mystery eggs, egg bombs, fern peels, and meteors called down on
@@ -7,6 +9,9 @@ whoever is leading.
 
 It was inspired by the *最速恐龍爭霸賽* (Speediest Dinosaur Battle) at the 2027
 Kaohsiung Marathon, a 150 m sprint where every runner wears a dinosaur costume.
+
+**Status:** actively developed; maintained largely by automated agents with a
+single human maintainer. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Run it
 
@@ -125,6 +130,13 @@ Four items let you attack rivals up close:
 **Soaked** runners are about 22 % slower for a while, because wet foam is
 heavy. The water also cools their costume, which is the one upside of being
 hosed down.
+
+## Contributing
+
+Bug reports, feature ideas and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md)
+for how to run the tests and open a PR. Commits must be signed off (DCO,
+`git commit -s`). Questions go to Discussions; security reports follow
+[SECURITY.md](SECURITY.md). License: MIT (see [LICENSE](LICENSE)).
 
 ## Architecture
 

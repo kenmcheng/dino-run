@@ -96,8 +96,8 @@ test('IpCounter: counts up and down, deletes the key at zero', () => {
 });
 
 test('clientIp: uses the last XFF hop only when trustProxy is on', () => {
-  const req = { headers: { 'x-forwarded-for': '203.0.113.1, 10.0.0.2, 10.0.0.3' }, socket: { remoteAddress: '127.0.0.1' } };
-  assert.equal(clientIp(req, true), '10.0.0.3');
+  const req = { headers: { 'x-forwarded-for': '203.0.113.1, 198.51.100.2, 198.51.100.3' }, socket: { remoteAddress: '127.0.0.1' } };
+  assert.equal(clientIp(req, true), '198.51.100.3');
   assert.equal(clientIp(req, false), '127.0.0.1');
 });
 
