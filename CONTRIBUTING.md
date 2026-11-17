@@ -40,7 +40,7 @@ git rebase --signoff main           # every commit on the branch
 ### PR size
 
 One concern per PR. Aim for at most 15 changed files and 400 changed lines.
-Larger PRs, and any PR touching `.github/`, `.forgejo/`, build scripts,
+Larger PRs, and any PR touching `.github/`, build scripts,
 `package.json`/`package-lock.json`, or the `Dockerfile`, are queued for the
 maintainer and are not auto-reviewed.
 
