@@ -19,7 +19,7 @@ Dino Run is a multiplayer 3D browser racing game (inflatable-dinosaur runners, M
 - CI of record is `.github/workflows/ci.yml`; it runs on push to `main` and on `pull_request`. PR runs cancel in-progress runs; `main` runs do not.
 - CI job `test`: `npm ci`, `./test.sh` with spec and junit reporters, a step summary, and the `test-report` artifact upload.
 - CI job `secret-scan`: `no-local-refs.sh` plus gitleaks (PR diff on PRs, full history on push).
-- The board's `ci:pass` / `ci:fail` label and ship/close (wiki sync, `ship:done`) are set by the fleet's host-side GitHub poller and ship script (`tasksmith-github-poll.sh`, `tasksmith-github-ship.sh`, outside this repo); there is no in-repo `ship` or `report-verdict` job.
+- The board's `ci:pass` / `ci:fail` label and ship/close (wiki sync, `ship:done`) are set by the fleet's host-side GitHub poller and ship script (outside this repo); there is no in-repo `ship` or `report-verdict` job.
 - CI is the test authority; a local run is a convenience.
 
 ## Rules and pitfalls
